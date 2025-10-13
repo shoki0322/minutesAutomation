@@ -1,0 +1,227 @@
+"""
+議事録投稿チェックスクリプト
+formatted_minutesが埋まったら、参加者メンション付きでSlackに投稿
+"""
+import os
+from datetime import datetime
+from typing import List, Optional
+from dateutil import tz
+from .google_clients import calendar as calendar_client
+from .slack_client import SlackClient
+from .minutes_repo import (
+    get_all_sheet_names,
+    read_sheet_rows,
+    update_row,
+    now_jst_str,
+)
+
+DEFAULT_CHANNEL_ID = os.getenv("DEFAULT_CHANNEL_ID")
+
+
+def get_calendar_participants(date: str, title: str = "", meeting_key: str = "") -> List[str]:
+    """
+    Calendar APIから該当会議の参加者メールアドレスを取得
+    date: 会議日（YYYY-MM-DD形式）
+    title: 会議タイトル（優先的に使用）
+    meeting_key: 会議識別キー（タイトルが一致しない場合のフォールバック）
+    """
+    if not date:
+        print("[check_and_post_minutes] date is empty, skipping participant lookup")
+        return []
+    
+    try:
+        cal_service = calendar_client()
+        
+        # 該当日の00:00 - 23:59の範囲でイベントを検索
+        from datetime import datetime, timedelta
+        import pytz
+        
+        tz = pytz.timezone(os.getenv("DEFAULT_TIMEZONE", "Asia/Tokyo"))
+        date_dt = datetime.strptime(date, "%Y-%m-%d")
+        date_dt = tz.localize(date_dt)
+        
+        time_min = date_dt.isoformat()
+        time_max = (date_dt + timedelta(days=1)).isoformat()
+        
+        events_result = cal_service.events().list(
+            calendarId="primary",
+            timeMin=time_min,
+            timeMax=time_max,
+            singleEvents=True,
+            orderBy="startTime"
+        ).execute()
+        
+        events = events_result.get("items", [])
+        
+        if not events:
+            print(f"[check_and_post_minutes] No calendar events found on {date}")
+            return []
+        
+        # イベントを検索（優先順位: title > meeting_key）
+        target_event = None
+        
+        # 1. タイトルで完全一致または部分一致を探す
+        if title:
+            for event in events:
+                summary = event.get("summary", "")
+                # 完全一致
+                if summary == title:
+                    target_event = event
+                    print(f"[check_and_post_minutes] Found event by exact title match: {summary}")
+                    break
+            
+            # 部分一致（完全一致がない場合）
+            if not target_event:
+                for event in events:
+                    summary = event.get("summary", "")
+                    if title in summary or summary in title:
+                        target_event = event
+                        print(f"[check_and_post_minutes] Found event by partial title match: {summary}")
+                        break
+        
+        # 2. meeting_keyで検索（タイトルで見つからない場合）
+        if not target_event and meeting_key:
+            for event in events:
+                summary = event.get("summary", "")
+                description = event.get("description", "")
+                if meeting_key in summary or meeting_key in description:
+                    target_event = event
+                    print(f"[check_and_post_minutes] Found event by meeting_key: {summary}")
+                    break
+        
+        # 3. その日の最初のイベントを使用（フォールバック）
+        if not target_event:
+            target_event = events[0]
+            print(f"[check_and_post_minutes] Using first event of the day: {target_event.get('summary', '')}")
+        
+        # 参加者を取得
+        attendees = target_event.get("attendees", [])
+        emails = [a["email"] for a in attendees if "email" in a]
+        
+        print(f"[check_and_post_minutes] Found {len(emails)} participants")
+        return emails
+        
+    except Exception as e:
+        print(f"[check_and_post_minutes] Error getting calendar participants: {e}")
+        return []
+
+
+def email_to_slack_id(slack_client: SlackClient, email: str) -> Optional[str]:
+    """メールアドレスからSlack IDに変換（ドメイン変換対応）"""
+    # まず元のメールで試す
+    slack_id = slack_client.lookup_user_id_by_email(email)
+    if slack_id:
+        return slack_id
+    
+    # 見つからない場合、ドメインを変換して再試行
+    if "@initialbrain.jp" in email:
+        converted_email = email.replace("@initialbrain.jp", "@nexx-inc.jp")
+        print(f"[check_and_post_minutes] Trying converted email: {email} -> {converted_email}")
+        slack_id = slack_client.lookup_user_id_by_email(converted_email)
+        if slack_id:
+            return slack_id
+    
+    return None
+
+
+def check_and_post_for_sheet(sheet_name: str, slack_client: SlackClient):
+    """1つのシートに対して議事録投稿チェックを実行"""
+    print(f"[check_and_post_minutes] Checking sheet: {sheet_name}")
+    
+    rows = read_sheet_rows(sheet_name)
+    
+    # 現在の日付（JST）
+    tz_info = tz.gettz(os.getenv("DEFAULT_TIMEZONE", "Asia/Tokyo"))
+    today = datetime.now(tz_info).strftime("%Y-%m-%d")
+    
+    for row in rows:
+        formatted_minutes = row.get("formatted_minutes", "").strip()
+        minutes_posted = row.get("minutes_posted", "").strip()
+        date = row.get("date", "").strip()
+        
+        # 条件1: 会議当日のみ投稿
+        if date != today:
+            continue
+        
+        # 条件2: formatted_minutesが非空 かつ まだ投稿していない
+        if not formatted_minutes:
+            continue
+        
+        if minutes_posted and minutes_posted.lower() in ["true", "yes", "posted"]:
+            continue
+        
+        # 投稿処理
+        title = row.get("title", "無題")
+        meeting_key = row.get("meeting_key", "")
+        channel_id = row.get("channel_id", "").strip() or DEFAULT_CHANNEL_ID
+        
+        if not channel_id:
+            print(f"[check_and_post_minutes] No channel_id for row: {title}")
+            continue
+        
+        # 参加者を取得（日付とタイトルで検索、meeting_keyはフォールバック）
+        participant_emails = get_calendar_participants(date, title, meeting_key)
+        mentions = []
+        
+        for email in participant_emails:
+            slack_id = email_to_slack_id(slack_client, email)
+            if slack_id:
+                mentions.append(f"<@{slack_id}>")
+        
+        mentions_text = " ".join(mentions) if mentions else ""
+        
+        # 参加者メールをカンマ区切りで保存用に整形
+        participants_str = ", ".join(participant_emails) if participant_emails else ""
+        
+        # 投稿本文（formatted_minutesをそのまま投稿）
+        message_parts = []
+        
+        if mentions_text:
+            message_parts.append(mentions_text)
+            message_parts.append("")
+        
+        message_parts.append(formatted_minutes)
+        
+        message = "\n".join(message_parts)
+        
+        # Slack投稿
+        print(f"[check_and_post_minutes] Posting minutes for: {title}")
+        ts = slack_client.post_message(channel_id, message)
+        
+        if ts:
+            # 成功: updated_at、minutes_posted、participants、minutes_thread_tsを更新
+            row_number = row.get("_row_number")
+            if row_number:
+                update_row(sheet_name, row_number, {
+                    "updated_at": now_jst_str(),
+                    "minutes_posted": "true",
+                    "participants": participants_str,
+                    "minutes_thread_ts": ts,  # 議事録投稿のスレッドTSを保存
+                })
+                print(f"[check_and_post_minutes] Successfully posted and updated row {row_number}")
+        else:
+            print(f"[check_and_post_minutes] Failed to post minutes for: {title}")
+
+
+def main():
+    """メイン処理"""
+    slack_client = SlackClient()
+    
+    # 全シートをチェック
+    sheet_names = get_all_sheet_names()
+    
+    for sheet_name in sheet_names:
+        # システムシートはスキップ
+        if sheet_name.lower() in ["mappings", "meetings", "items", "agendas", "archives", "hearing_prompts", "hearing_responses"]:
+            continue
+        
+        try:
+            check_and_post_for_sheet(sheet_name, slack_client)
+        except Exception as e:
+            print(f"[check_and_post_minutes] Error processing sheet {sheet_name}: {e}")
+            continue
+
+
+if __name__ == "__main__":
+    main()
+
