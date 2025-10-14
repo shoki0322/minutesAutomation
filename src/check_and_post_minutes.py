@@ -127,6 +127,7 @@ def email_to_slack_id(slack_client: SlackClient, email: str) -> Optional[str]:
 def check_and_post_for_sheet(sheet_name: str, slack_client: SlackClient):
     """1つのシートに対して議事録投稿チェックを実行"""
     print(f"[check_and_post_minutes] Checking sheet: {sheet_name}")
+    print(f"[check_and_post_minutes] DEFAULT_CHANNEL_ID: '{DEFAULT_CHANNEL_ID}'")
     
     rows = read_sheet_rows(sheet_name)
     
@@ -134,24 +135,36 @@ def check_and_post_for_sheet(sheet_name: str, slack_client: SlackClient):
     tz_info = tz.gettz(os.getenv("DEFAULT_TIMEZONE", "Asia/Tokyo"))
     today = datetime.now(tz_info).strftime("%Y-%m-%d")
     
+    print(f"[check_and_post_minutes] Today's date (JST): {today}")
+    print(f"[check_and_post_minutes] Found {len(rows)} rows in sheet: {sheet_name}")
+    
     for row in rows:
         formatted_minutes = row.get("formatted_minutes", "").strip()
         minutes_posted = row.get("minutes_posted", "").strip()
         date = row.get("date", "").strip()
+        title = row.get("title", "無題")
+        
+        print(f"[check_and_post_minutes] Checking row: {title}")
+        print(f"  - date: '{date}' (today: '{today}', match: {date == today})")
+        print(f"  - formatted_minutes: {'YES' if formatted_minutes else 'NO'} (length: {len(formatted_minutes)})")
+        print(f"  - minutes_posted: '{minutes_posted}'")
         
         # 条件1: 会議当日のみ投稿
         if date != today:
+            print(f"  → SKIP: date mismatch")
             continue
         
         # 条件2: formatted_minutesが非空 かつ まだ投稿していない
         if not formatted_minutes:
+            print(f"  → SKIP: no formatted_minutes")
             continue
         
         if minutes_posted and minutes_posted.lower() in ["true", "yes", "posted"]:
+            print(f"  → SKIP: already posted")
             continue
         
         # 投稿処理
-        title = row.get("title", "無題")
+        print(f"  → PROCESSING: will post minutes")
         meeting_key = row.get("meeting_key", "")
         channel_id = row.get("channel_id", "").strip() or DEFAULT_CHANNEL_ID
         

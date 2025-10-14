@@ -34,6 +34,7 @@ jobs:
           echo "GOOGLE_REFRESH_TOKEN=${{ secrets.GOOGLE_REFRESH_TOKEN }}" >> $GITHUB_ENV
           echo "SLACK_BOT_TOKEN=${{ secrets.SLACK_BOT_TOKEN }}" >> $GITHUB_ENV
           echo "PRIMARY_SHEET_ID=${{ secrets.PRIMARY_SHEET_ID }}" >> $GITHUB_ENV
+          echo "DEFAULT_CHANNEL_ID=${{ secrets.DEFAULT_CHANNEL_ID }}" >> $GITHUB_ENV
           echo "DEFAULT_TIMEZONE=${{ secrets.DEFAULT_TIMEZONE }}" >> $GITHUB_ENV
 
       - name: Check and post minutes
