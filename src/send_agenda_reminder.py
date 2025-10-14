@@ -73,8 +73,10 @@ def should_send_agenda_reminder(next_meeting_date_str: str) -> bool:
         # 現在のJST時刻
         now = now_jst()
         
-        # 同じ日付で、18:00~19:00の間
-        if now.date() == target_date.date() and 18 <= now.hour < 19:
+        # 同じ日付で、18:00以降
+        # GitHub Actionsは毎時00分実行なので、18:00以降ならOK
+        # remarksのagenda_sentフラグで重複防止されているので何度実行しても安全
+        if now.date() == target_date.date() and now.hour >= 18:
             return True
         
         return False

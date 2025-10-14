@@ -37,8 +37,10 @@ def should_collect_responses(next_meeting_date_str: str) -> bool:
         # 現在のJST時刻
         now = now_jst()
         
-        # 同じ日付で、09:00~10:00の間
-        if now.date() == target_date.date() and 9 <= now.hour < 10:
+        # 同じ日付で、09:00以降
+        # GitHub Actionsは毎時00分実行なので、09:00以降ならOK
+        # 既に収集済みの場合はhearing_responses01-04が埋まっているのでスキップされる
+        if now.date() == target_date.date() and now.hour >= 9:
             return True
         
         return False
