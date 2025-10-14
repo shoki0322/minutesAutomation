@@ -141,39 +141,59 @@ def check_and_post_for_sheet(sheet_name: str, slack_client: SlackClient):
     for row in rows:
         formatted_minutes = row.get("formatted_minutes", "").strip()
         minutes_posted = row.get("minutes_posted", "").strip()
+        minutes_thread_ts = row.get("minutes_thread_ts", "").strip()
         date = row.get("date", "").strip()
         title = row.get("title", "無題")
+        meeting_key = row.get("meeting_key", "")
+        channel_id = row.get("channel_id", "").strip()
         
         print(f"[check_and_post_minutes] Checking row: {title}")
         print(f"  - date: '{date}' (today: '{today}', match: {date == today})")
         print(f"  - formatted_minutes: {'YES' if formatted_minutes else 'NO'} (length: {len(formatted_minutes)})")
         print(f"  - minutes_posted: '{minutes_posted}'")
+        print(f"  - minutes_thread_ts: '{minutes_thread_ts}'")
         
+        # まずカレンダーAPIを最初に実行（当日分のみ）。参加者をシートに保存。
+        participant_emails: List[str] = []
+        if date == today:
+            participant_emails = get_calendar_participants(date, title, meeting_key)
+            participants_str_existing = row.get("participants", "").strip()
+            participants_str_new = ", ".join(participant_emails) if participant_emails else ""
+            if participants_str_new and participants_str_new != participants_str_existing:
+                row_number = row.get("_row_number")
+                if row_number:
+                    update_row(sheet_name, row_number, {
+                        "participants": participants_str_new,
+                        "updated_at": now_jst_str(),
+                    })
+                    print(f"[check_and_post_minutes] Participants updated for row {row_number}")
+
         # 条件1: 会議当日のみ投稿
         if date != today:
             print(f"  → SKIP: date mismatch")
             continue
         
-        # 条件2: formatted_minutesが非空 かつ まだ投稿していない
+        # 条件2: formatted_minutesが非空
         if not formatted_minutes:
             print(f"  → SKIP: no formatted_minutes")
             continue
-        
-        if minutes_posted and minutes_posted.lower() in ["true", "yes", "posted"]:
-            print(f"  → SKIP: already posted")
+
+        # 既にスレッドTSがあれば投稿済みとみなしてスキップ（minutes_postedは参照しない）
+        if minutes_thread_ts:
+            print(f"  → SKIP: minutes_thread_ts already set ({minutes_thread_ts})")
             continue
         
         # 投稿処理
         print(f"  → PROCESSING: will post minutes")
-        meeting_key = row.get("meeting_key", "")
-        channel_id = row.get("channel_id", "").strip() or DEFAULT_CHANNEL_ID
+        # meeting_key, channel_id は先頭で取得済み
         
         if not channel_id:
-            print(f"[check_and_post_minutes] No channel_id for row: {title}")
+            print(f"[check_and_post_minutes] No channel_id for row: {title} (skipping)")
             continue
         
-        # 参加者を取得（日付とタイトルで検索、meeting_keyはフォールバック）
-        participant_emails = get_calendar_participants(date, title, meeting_key)
+        # 参加者は既に取得済み（安全のため未取得なら再取得）
+        if not participant_emails:
+            participant_emails = get_calendar_participants(date, title, meeting_key)
         mentions = []
         
         for email in participant_emails:
@@ -202,12 +222,11 @@ def check_and_post_for_sheet(sheet_name: str, slack_client: SlackClient):
         ts = slack_client.post_message(channel_id, message)
         
         if ts:
-            # 成功: updated_at、minutes_posted、participants、minutes_thread_tsを更新
+            # 成功: updated_at、participants、minutes_thread_tsを更新（minutes_postedは不使用）
             row_number = row.get("_row_number")
             if row_number:
                 update_row(sheet_name, row_number, {
                     "updated_at": now_jst_str(),
-                    "minutes_posted": "true",
                     "participants": participants_str,
                     "minutes_thread_ts": ts,  # 議事録投稿のスレッドTSを保存
                 })
