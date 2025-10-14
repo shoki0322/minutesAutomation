@@ -15,7 +15,7 @@ from .minutes_repo import (
     now_jst_str,
 )
 
-DEFAULT_CHANNEL_ID = os.getenv("DEFAULT_CHANNEL_ID")
+DEFAULT_CHANNEL_ID = os.getenv("DEFAULT_CHANNEL_ID", "").strip()
 
 
 def get_calendar_participants(date: str, title: str = "", meeting_key: str = "") -> List[str]:

@@ -13,7 +13,7 @@ from .minutes_repo import (
     now_jst_str,
 )
 
-DEFAULT_CHANNEL_ID = os.getenv("DEFAULT_CHANNEL_ID")
+DEFAULT_CHANNEL_ID = os.getenv("DEFAULT_CHANNEL_ID", "").strip()
 
 
 def should_send_hearing_reminder(next_meeting_date_str: str) -> bool:

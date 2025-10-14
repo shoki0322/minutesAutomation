@@ -3,7 +3,7 @@ from typing import Optional, List, Dict, Any
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
-SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN")
+SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "").strip()
 
 class SlackClient:
     def __init__(self) -> None:

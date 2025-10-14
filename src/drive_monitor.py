@@ -14,7 +14,7 @@ from .minutes_repo import (
     date_plus_days,
 )
 
-DRIVE_FOLDER_ID = os.getenv("DRIVE_FOLDER_ID")
+DRIVE_FOLDER_ID = os.getenv("DRIVE_FOLDER_ID", "").strip()
 DEFAULT_TIMEZONE = os.getenv("DEFAULT_TIMEZONE", "Asia/Tokyo")
 
 
@@ -90,7 +90,8 @@ def doc_already_exists(sheet_name: str, doc_url: str) -> bool:
 def monitor_and_update_sheets():
     """Drive監視メイン処理"""
     if not DRIVE_FOLDER_ID:
-        print("[drive_monitor] DRIVE_FOLDER_ID not set. Skipping.")
+        print("[drive_monitor] ERROR: DRIVE_FOLDER_ID not set or empty. Skipping.")
+        print(f"[drive_monitor] DEBUG: DRIVE_FOLDER_ID value: '{DRIVE_FOLDER_ID}' (length: {len(DRIVE_FOLDER_ID)})")
         return
     
     print(f"[drive_monitor] Monitoring folder: {DRIVE_FOLDER_ID}")

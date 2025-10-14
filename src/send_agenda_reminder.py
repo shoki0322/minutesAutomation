@@ -14,7 +14,7 @@ from .minutes_repo import (
     now_jst_str,
 )
 
-DEFAULT_CHANNEL_ID = os.getenv("DEFAULT_CHANNEL_ID")
+DEFAULT_CHANNEL_ID = os.getenv("DEFAULT_CHANNEL_ID", "").strip()
 
 
 def create_google_doc(title: str, content: str) -> str:

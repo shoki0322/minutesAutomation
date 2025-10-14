@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from dateutil import tz
 from .google_clients import sheets as sheets_client
 
-PRIMARY_SHEET_ID = os.getenv("PRIMARY_SHEET_ID")
+PRIMARY_SHEET_ID = os.getenv("PRIMARY_SHEET_ID", "").strip()
 DEFAULT_TIMEZONE = os.getenv("DEFAULT_TIMEZONE", "Asia/Tokyo")
 
 # 想定される列名（スプレッドシートのヘッダー順と一致）
