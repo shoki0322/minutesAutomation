@@ -15,7 +15,7 @@ from .minutes_repo import (
     now_jst_str,
 )
 
-DEFAULT_CHANNEL_ID = os.getenv("DEFAULT_CHANNEL_ID", "").strip()
+# Slackの投稿先はシートの channel_id のみを使用する（環境変数は使わない）
 
 
 def get_calendar_participants(date: str, title: str = "", meeting_key: str = "") -> List[str]:
@@ -127,7 +127,6 @@ def email_to_slack_id(slack_client: SlackClient, email: str) -> Optional[str]:
 def check_and_post_for_sheet(sheet_name: str, slack_client: SlackClient):
     """1つのシートに対して議事録投稿チェックを実行"""
     print(f"[check_and_post_minutes] Checking sheet: {sheet_name}")
-    print(f"[check_and_post_minutes] DEFAULT_CHANNEL_ID: '{DEFAULT_CHANNEL_ID}'")
     
     rows = read_sheet_rows(sheet_name)
     
@@ -140,6 +139,7 @@ def check_and_post_for_sheet(sheet_name: str, slack_client: SlackClient):
     
     for row in rows:
         formatted_minutes = row.get("formatted_minutes", "").strip()
+        remarks = row.get("remarks", "").strip()
         minutes_posted = row.get("minutes_posted", "").strip()
         minutes_thread_ts = row.get("minutes_thread_ts", "").strip()
         date = row.get("date", "").strip()
@@ -152,6 +152,7 @@ def check_and_post_for_sheet(sheet_name: str, slack_client: SlackClient):
         print(f"  - formatted_minutes: {'YES' if formatted_minutes else 'NO'} (length: {len(formatted_minutes)})")
         print(f"  - minutes_posted: '{minutes_posted}'")
         print(f"  - minutes_thread_ts: '{minutes_thread_ts}'")
+        print(f"  - remarks_has_gpt: {'✅ GPT整形済み' in remarks}")
         
         # まずカレンダーAPIを最初に実行（当日分のみ）。参加者をシートに保存。
         participant_emails: List[str] = []
@@ -176,6 +177,11 @@ def check_and_post_for_sheet(sheet_name: str, slack_client: SlackClient):
         # 条件2: formatted_minutesが非空
         if not formatted_minutes:
             print(f"  → SKIP: no formatted_minutes")
+            continue
+
+        # 条件3: remarks に ✅ GPT整形済み を含む
+        if "✅ GPT整形済み" not in remarks:
+            print(f"  → SKIP: remarks does not include '✅ GPT整形済み'")
             continue
 
         # 既にスレッドTSがあれば投稿済みとみなしてスキップ（minutes_postedは参照しない）
