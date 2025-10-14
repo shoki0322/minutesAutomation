@@ -76,6 +76,8 @@ def send_hearing_for_sheet(sheet_name: str, slack_client: SlackClient):
         next_meeting_date = row.get("next_meeting_date", "").strip()
         hearing_thread_ts = row.get("hearing_thread_ts", "").strip()
         minutes_thread_ts = row.get("minutes_thread_ts", "").strip()
+        row_date = row.get("date", "").strip()
+        today_str = now_jst().strftime("%Y-%m-%d")
         
         # 既に送信済み（hearing_thread_tsが存在）ならスキップ
         # ※同じ会議に対して複数回送らないための制御
@@ -83,6 +85,11 @@ def send_hearing_for_sheet(sheet_name: str, slack_client: SlackClient):
         if hearing_thread_ts:
             continue
         
+        # 同日連投防止: 議事録を投稿した当日にはヒアリングを送らない
+        if row_date == today_str:
+            print(f"[send_hearing_reminder] Skip (same-day as meeting): {row.get('title')}")
+            continue
+
         # 送信すべきか判定
         if not should_send_hearing_reminder(next_meeting_date):
             continue
