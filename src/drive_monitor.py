@@ -128,21 +128,22 @@ def monitor_and_update_sheets():
         # next_meeting_date = date + 7日
         next_meeting_date = date_plus_days(date_str, 7)
         
-        # 各シート（事業部）に追加
-        # 実際の運用では、どのシートに追加するかのロジックが必要
-        # ここでは全シートに追加しないよう、1つ目のシートのみに追加
-        # TODO: タイトルやフォルダ構造から適切なシートを判断するロジックを追加
-        
+        # タイトルにシート名が含まれるかチェックして振り分け
+        # 例：「AI基盤MTG」→「AI基盤」シート、「BI基盤MTG」→「BI基盤」シート
         target_sheet = None
         for sheet_name in sheet_names:
-            # システムシート以外を対象（例：「mappings」などは除外）
-            if sheet_name.lower() in ["mappings", "meetings", "items", "agendas", "archives"]:
+            # システムシート以外を対象
+            if sheet_name.lower() in ["mappings", "meetings", "items", "agendas", "archives", "hearing_prompts", "hearing_responses"]:
                 continue
-            target_sheet = sheet_name
-            break
+            
+            # タイトルにシート名が含まれているかチェック
+            if sheet_name in title:
+                target_sheet = sheet_name
+                print(f"[drive_monitor] Matched sheet '{sheet_name}' from title: {title}")
+                break
         
         if not target_sheet:
-            print(f"[drive_monitor] No valid target sheet found for {title}")
+            print(f"[drive_monitor] No matching sheet found for title: {title} (skipping)")
             continue
         
         # 重複チェック
