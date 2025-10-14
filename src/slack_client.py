@@ -23,6 +23,18 @@ class SlackClient:
             print(f"[slack] lookupByEmail failed for {email}: {e}")
             return None
 
+    def _try_join_channel(self, channel: str) -> bool:
+        if not self.client:
+            return False
+        try:
+            # conversations_join は既に参加済みでも成功する
+            self.client.conversations_join(channel=channel)
+            print(f"[slack] joined channel {channel}")
+            return True
+        except SlackApiError as e:
+            print(f"[slack] conversations_join error for {channel}: {e}")
+            return False
+
     def post_message(self, channel: str, text: str, thread_ts: Optional[str] = None) -> Optional[str]:
         if not self.client:
             print("[slack] post_message skipped (no token).")
@@ -33,7 +45,19 @@ class SlackClient:
             print(f"[slack] posted message ts={ts} channel={channel} thread_ts={thread_ts or '-'}")
             return ts
         except SlackApiError as e:
-            print(f"[slack] post_message error: {e}")
+            err = getattr(e, 'response', {}).get('data', {}).get('error') if hasattr(e, 'response') else None
+            print(f"[slack] post_message error (first attempt): {e}")
+            # チャンネル未参加時は参加して再試行
+            if err == "not_in_channel":
+                if self._try_join_channel(channel):
+                    try:
+                        res = self.client.chat_postMessage(channel=channel, text=text, thread_ts=thread_ts)
+                        ts = res["ts"]
+                        print(f"[slack] posted message after join ts={ts} channel={channel}")
+                        return ts
+                    except SlackApiError as e2:
+                        print(f"[slack] post_message error after join: {e2}")
+                        return None
             return None
 
     def fetch_thread_replies(self, channel: str, thread_ts: str) -> List[Dict[str, Any]]:
