@@ -48,25 +48,32 @@ def should_send_hearing_reminder(next_meeting_date_str: str) -> bool:
         return False
 
 
-def create_hearing_message(next_meeting_date: str, participants: list = None, previous_responses: list = None) -> str:
-    """ヒアリング依頼メッセージを生成（シンプル版）"""
-    template = f"""次回会議のヒアリング項目（{next_meeting_date} 開催予定）
+def create_hearing_message(next_meeting_date: str, participants: list = None, previous_responses: list = None, mentions: str = "") -> str:
+    """ヒアリング依頼メッセージを生成（メンション対応）"""
+    header_parts = []
+    if mentions:
+        header_parts.append(mentions)
+    header_parts.append(f"*次回会議のヒアリング項目*")
+    header = "\n\n".join(header_parts)
 
-1. 担当者名：
-2. 今回報告するタスク：
-   - タスク①：（ステータス：完了／進行中／未着手／保留）
-     ・期限：
-     ・進捗内容：
-     ・課題・懸念点：（※ここに記載があると次回議題候補に自動吸収）
-   - タスク②：（同上）
-3. 新しく議題として取り上げたい内容：
-   - ①：
-   - ②：
-4. 全体コメント：
+    template_body = (
+        "\n\n"
+        "*1. 担当者名：*\n"
+        "*2. 今回報告するタスク：*\n"
+        "   - タスク①：（ステータス：完了／進行中／未着手／保留）\n"
+        "     ・期限：\n"
+        "     ・進捗内容：\n"
+        "     ・課題・懸念点：（※ここに記載があると次回議題候補に自動吸収）\n"
+        "   - タスク②：（同上）\n"
+        "*3. 新しく議題として取り上げたい内容：*\n"
+        "   - ①：\n"
+        "   - ②：\n"
+        "*4. 全体コメント：*\n\n"
+        "このスレッドで回答してください 👇\n\n"
+        "*※ 翌日9:00までに本スレッドで返信ください。返信がない場合は次回アジェンダに追加されません。*"
+    )
 
-このスレッドで回答してください 👇"""
-    
-    return template
+    return header + template_body
 
 
 def send_hearing_for_sheet(sheet_name: str, slack_client: SlackClient):
@@ -123,8 +130,22 @@ def send_hearing_for_sheet(sheet_name: str, slack_client: SlackClient):
             row.get("hearing_responses04", ""),
         ]
         
-        # メッセージ生成
-        message = create_hearing_message(next_meeting_date, participants, previous_responses)
+        # メンション生成（participantsのメールをSlack IDに変換。ドメイン変換フォールバック含む）
+        mentions = ""
+        if participants:
+            slack_ids = []
+            for email in participants:
+                slack_id = slack_client.lookup_user_id_by_email(email)
+                if not slack_id and "@initialbrain.jp" in email:
+                    converted_email = email.replace("@initialbrain.jp", "@nexx-inc.jp")
+                    slack_id = slack_client.lookup_user_id_by_email(converted_email)
+                if slack_id:
+                    slack_ids.append(f"<@{slack_id}>")
+            if slack_ids:
+                mentions = " ".join(slack_ids)
+
+        # メッセージ生成（メンション付与）
+        message = create_hearing_message(next_meeting_date, participants, previous_responses, mentions)
         
         # Slack投稿（議事録のスレッドに投稿）
         print(f"[send_hearing_reminder] Sending hearing reminder for: {title}")
