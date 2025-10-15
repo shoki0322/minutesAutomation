@@ -59,7 +59,10 @@ def create_hearing_message(next_meeting_date: str, participants: list = None, pr
      ・進捗内容：
      ・課題・懸念点：（※ここに記載があると次回議題候補に自動吸収）
    - タスク②：（同上）
-3. 全体コメント：
+3. 新しく議題として取り上げたい内容：
+   - ①：
+   - ②：
+4. 全体コメント：
 
 このスレッドで回答してください 👇"""
     
