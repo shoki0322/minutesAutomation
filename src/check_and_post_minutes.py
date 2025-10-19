@@ -223,7 +223,7 @@ def check_and_post_for_sheet(sheet_name: str, slack_client: SlackClient):
         
         message = "\n".join(message_parts)
         
-        # Slack投稿
+        # Slack投稿（親メッセージ）
         print(f"[check_and_post_minutes] Posting minutes for: {title}")
         ts = slack_client.post_message(channel_id, message)
         
@@ -237,6 +237,28 @@ def check_and_post_for_sheet(sheet_name: str, slack_client: SlackClient):
                     "minutes_thread_ts": ts,  # 議事録投稿のスレッドTSを保存
                 })
                 print(f"[check_and_post_minutes] Successfully posted and updated row {row_number}")
+
+            # 追記: 修正依頼の案内をスレッドに投稿
+            try:
+                review_user_id = os.getenv("REVIEW_USER_ID", "").strip()  # 例: U0123456789
+                trigger_name = os.getenv("REVIEW_TRIGGER_KEYWORDS", "DR.ベガパンク").split(",")[0].strip()
+                # 参加者メンション（必要に応じて）
+                notify_mentions = []
+                for email in participant_emails:
+                    sid = email_to_slack_id(slack_client, email)
+                    if sid:
+                        notify_mentions.append(f"<@{sid}>")
+                notify_text = (" ".join(notify_mentions) + "\n\n") if notify_mentions else ""
+                review_target_text = f"<@{review_user_id}>" if review_user_id else f"@{trigger_name}"
+                guidance = (
+                    f"{notify_text}翌朝9:00(JST)までに、必要な修正依頼をこのスレッドへ返信してください。\n"
+                    f"参加者間で合意した修正依頼は {review_target_text} をメンションすると、AIが議事録に反映します。\n"
+                    f"フォーマット例: 修正依頼：該当箇所／修正文"
+                )
+                slack_client.post_message(channel_id, guidance, thread_ts=ts)
+                print("[check_and_post_minutes] Posted review guidance in thread")
+            except Exception as e:
+                print(f"[check_and_post_minutes] Failed to post review guidance: {e}")
         else:
             print(f"[check_and_post_minutes] Failed to post minutes for: {title}")
 

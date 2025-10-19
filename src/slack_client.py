@@ -35,12 +35,12 @@ class SlackClient:
             print(f"[slack] conversations_join error for {channel}: {e}")
             return False
 
-    def post_message(self, channel: str, text: str, thread_ts: Optional[str] = None) -> Optional[str]:
+    def post_message(self, channel: str, text: str, thread_ts: Optional[str] = None, blocks: Optional[List[Dict[str, Any]]] = None) -> Optional[str]:
         if not self.client:
             print("[slack] post_message skipped (no token).")
             return None
         try:
-            res = self.client.chat_postMessage(channel=channel, text=text, thread_ts=thread_ts)
+            res = self.client.chat_postMessage(channel=channel, text=text, thread_ts=thread_ts, blocks=blocks)
             ts = res["ts"]
             print(f"[slack] posted message ts={ts} channel={channel} thread_ts={thread_ts or '-'}")
             return ts
@@ -51,7 +51,7 @@ class SlackClient:
             if err == "not_in_channel":
                 if self._try_join_channel(channel):
                     try:
-                        res = self.client.chat_postMessage(channel=channel, text=text, thread_ts=thread_ts)
+                        res = self.client.chat_postMessage(channel=channel, text=text, thread_ts=thread_ts, blocks=blocks)
                         ts = res["ts"]
                         print(f"[slack] posted message after join ts={ts} channel={channel}")
                         return ts

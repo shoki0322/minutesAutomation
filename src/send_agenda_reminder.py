@@ -5,7 +5,7 @@ next_meeting_dateの前日18:00（JST）にSlackへ次回議題を投稿
 import os
 from datetime import datetime, timedelta
 from .slack_client import SlackClient
-from .google_clients import docs as docs_client, drive as drive_client
+from .google_clients import docs as docs_client, drive as drive_client, calendar as calendar_client
 from .minutes_repo import (
     get_all_sheet_names,
     read_sheet_rows,
@@ -87,8 +87,8 @@ def should_send_agenda_reminder(next_meeting_date_str: str) -> bool:
 
 
 def create_agenda_message(title: str, next_meeting_date: str, next_agenda: str, 
-                         mentions: str = "", doc_url: str = "") -> str:
-    """議題共有メッセージを生成（メンション、Docsリンク付き）"""
+                         mentions: str = "") -> str:
+    """議題共有メッセージを生成（メンション＋テキスト本文のみ）"""
     parts = []
     
     # メンション
@@ -97,12 +97,52 @@ def create_agenda_message(title: str, next_meeting_date: str, next_agenda: str,
     
     # タイトルと日付
     parts.append(f"明日の議題共有（{next_meeting_date} 開催）")
-    
-    # Docsリンク
-    if doc_url:
-        parts.append(f"📄 次回議題: {doc_url}")
+
+    # 議題本文をそのまま載せる（テキストのみ）
+    if next_agenda:
+        parts.append("")
+        parts.append(next_agenda)
     
     return "\n".join(parts)
+
+
+def _find_event_on_date(cal_svc, calendar_id: str, date_str: str, title: str) -> dict:
+    """指定日付のイベントからタイトル一致（部分可）を優先して1件返す。無ければ最初のイベント。無ければNone。"""
+    from datetime import datetime, timedelta
+    import pytz
+    tz = pytz.timezone(os.getenv("DEFAULT_TIMEZONE", "Asia/Tokyo"))
+    dt = datetime.strptime(date_str, "%Y-%m-%d")
+    dt = tz.localize(dt)
+    time_min = dt.isoformat()
+    time_max = (dt + timedelta(days=1)).isoformat()
+    items = cal_svc.events().list(calendarId=calendar_id, timeMin=time_min, timeMax=time_max,
+                                  singleEvents=True, orderBy="startTime").execute().get("items", [])
+    if not items:
+        return None
+    # 完全一致
+    for ev in items:
+        if ev.get("summary", "") == title:
+            return ev
+    # 部分一致
+    for ev in items:
+        sm = ev.get("summary", "")
+        if title in sm or sm in title:
+            return ev
+    return items[0]
+
+
+def _append_doc_url_to_event_description(cal_svc, calendar_id: str, event: dict, doc_url: str) -> bool:
+    """イベントのdescription末尾にDoc URLを追記。更新成功でTrue。"""
+    if not event:
+        return False
+    desc = (event.get("description") or "").strip()
+    append_line = f"\n\n次回議題: {doc_url}"
+    if doc_url in desc:
+        return True  # 既に含まれていればOK扱い
+    new_desc = (desc + append_line) if desc else f"次回議題: {doc_url}"
+    patched = {"description": new_desc}
+    cal_svc.events().patch(calendarId=calendar_id, eventId=event.get("id"), body=patched).execute()
+    return True
 
 
 def send_agenda_for_sheet(sheet_name: str, slack_client: SlackClient):
@@ -160,16 +200,26 @@ def send_agenda_for_sheet(sheet_name: str, slack_client: SlackClient):
             if slack_ids:
                 mentions = " ".join(slack_ids)
         
-        # 次回議題用のGoogle Docsを作成
+        # 次回議題用のGoogle Docsを作成し、カレンダーイベントの説明にURLを追加
         doc_title = f"{title} - 次回議題 ({next_meeting_date})"
         agenda_doc_url = create_google_doc(doc_title, next_agenda)
-        
-        if not agenda_doc_url:
+        if agenda_doc_url:
+            try:
+                cal_svc = calendar_client()
+                calendar_id = os.getenv("CALENDAR_ID", "primary")
+                ev = _find_event_on_date(cal_svc, calendar_id, next_meeting_date, title)
+                if ev:
+                    if _append_doc_url_to_event_description(cal_svc, calendar_id, ev, agenda_doc_url):
+                        print(f"[send_agenda_reminder] Appended doc URL to calendar event: {ev.get('summary','')} ({ev.get('id')})")
+                else:
+                    print(f"[send_agenda_reminder] No calendar event found on {next_meeting_date} for {title}")
+            except Exception as e:
+                print(f"[send_agenda_reminder] Failed to append doc to calendar: {e}")
+        else:
             print(f"[send_agenda_reminder] Failed to create Google Doc for: {title}")
-            continue
-        
-        # メッセージ生成（メンション、新しいDocsリンク付き）
-        message = create_agenda_message(title, next_meeting_date, next_agenda, mentions, agenda_doc_url)
+
+        # Slackにはテキストのみ送る（Docsリンクは含めない）
+        message = create_agenda_message(title, next_meeting_date, next_agenda, mentions)
         
         # Slack投稿
         print(f"[send_agenda_reminder] Sending agenda reminder for: {title}")
