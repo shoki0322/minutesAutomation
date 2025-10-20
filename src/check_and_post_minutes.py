@@ -234,7 +234,7 @@ def check_and_post_for_sheet(sheet_name: str, slack_client: SlackClient):
                 update_row(sheet_name, row_number, {
                     "updated_at": now_jst_str(),
                     "participants": participants_str,
-                    "minutes_thread_ts": ts,  # 議事録投稿のスレッドTSを保存
+                    "minutes_thread_ts": ts,
                 })
                 print(f"[check_and_post_minutes] Successfully posted and updated row {row_number}")
 
@@ -265,7 +265,8 @@ def check_and_post_for_sheet(sheet_name: str, slack_client: SlackClient):
 
 def main():
     """メイン処理"""
-    slack_client = SlackClient()
+    # 初回議事録（formatted_minutes）投稿は MINUTES ボット
+    slack_client = SlackClient(token=os.getenv("SLACK_BOT_TOKEN_MINUTES", "").strip() or None)
     
     # 全シートをチェック
     sheet_names = get_all_sheet_names()

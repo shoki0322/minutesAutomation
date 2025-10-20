@@ -1,7 +1,7 @@
 """
 議事録修正依頼の収集
-- 対象: 議事録スレッドの返信のうち、指定メンション/キーワードを含むもの全件
-- 出力: シートに新規列 review_requests に JSON 文字列で保存（将来のGAS統合を想定）
+- 対象: 議事録スレッドの返信のうち、指定メンション/キーワードを含むもの
+- 出力: シート列 review_requests01〜04 に時系列で最大4件を書き込み
 """
 import os
 import json
@@ -15,21 +15,14 @@ from .minutes_repo import (
 )
 
 DEFAULT_CHANNEL_ID = os.getenv("DEFAULT_CHANNEL_ID", "").strip()
-REVIEW_USER_ID = os.getenv("REVIEW_USER_ID", "").strip()  # 例: U0123456789
-REVIEW_TRIGGER_KEYWORDS = [k.strip() for k in os.getenv("REVIEW_TRIGGER_KEYWORDS", "DR.ベガパンク").split(",") if k.strip()]
+REVIEW_USER_ID = os.getenv("REVIEW_USER_ID", "").strip()  # 例: U0123456789（必須。実メンションのみ対象）
 
 
 def reply_matches(text: str) -> bool:
-    if not text:
+    """実メンション <@REVIEW_USER_ID> を含む投稿のみを対象とする。"""
+    if not text or not REVIEW_USER_ID:
         return False
-    # メンション（<@UXXXX>）
-    if REVIEW_USER_ID and f"<@{REVIEW_USER_ID}>" in text:
-        return True
-    # 日本語名キーワード
-    for kw in REVIEW_TRIGGER_KEYWORDS:
-        if kw and kw in text:
-            return True
-    return False
+    return f"<@{REVIEW_USER_ID}>" in text
 
 
 def collect_for_sheet(sheet_name: str, slack_client: SlackClient):
@@ -58,18 +51,31 @@ def collect_for_sheet(sheet_name: str, slack_client: SlackClient):
         if not matches:
             continue
 
-        # JSONにして review_requests 列へ格納（将来GASでマージするための原本）
+        # ts昇順に並べ、先頭から最大4件を各列へ格納
+        try:
+            matches.sort(key=lambda m: float(m.get("ts", "0")))
+        except Exception:
+            pass
+        texts = [m["text"] for m in matches][:4]
+        # 4つに揃える
+        while len(texts) < 4:
+            texts.append("")
+
         row_number = row.get("_row_number")
         if row_number:
             update_row(sheet_name, row_number, {
-                "review_requests": json.dumps(matches, ensure_ascii=False),
+                "review_requests01": texts[0],
+                "review_requests02": texts[1],
+                "review_requests03": texts[2],
+                "review_requests04": texts[3],
                 "updated_at": now_jst_str(),
             })
-            print(f"[collect_review_requests] Saved {len(matches)} requests to row {row_number}")
+            print(f"[collect_review_requests] Saved {min(4, len(matches))} requests to row {row_number}")
 
 
 def main():
-    slack_client = SlackClient()
+    # 収集と完成版投稿はレビュー用ボットで実行
+    slack_client = SlackClient(token=os.getenv("SLACK_BOT_TOKEN_REVIEW", "").strip() or None)
     for sheet_name in get_all_sheet_names():
         if sheet_name.lower() in [
             "mappings", "meetings", "items", "agendas", "archives", "hearing_prompts", "hearing_responses"

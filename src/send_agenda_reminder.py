@@ -241,7 +241,8 @@ def send_agenda_for_sheet(sheet_name: str, slack_client: SlackClient):
 
 def main():
     """メイン処理"""
-    slack_client = SlackClient()
+    # 最終アジェンダ投稿は AGENDA ボット
+    slack_client = SlackClient(token=os.getenv("SLACK_BOT_TOKEN_AGENDA", "").strip() or None)
     
     # 全シートをチェック
     sheet_names = get_all_sheet_names()

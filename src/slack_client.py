@@ -6,12 +6,13 @@ from slack_sdk.errors import SlackApiError
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "").strip()
 
 class SlackClient:
-    def __init__(self) -> None:
-        if not SLACK_BOT_TOKEN:
+    def __init__(self, token: str | None = None) -> None:
+        tok = (token or SLACK_BOT_TOKEN).strip()
+        if not tok:
             self.client = None
             print("[slack] SLACK_BOT_TOKEN not set; Slack actions will be skipped.")
         else:
-            self.client = WebClient(token=SLACK_BOT_TOKEN)
+            self.client = WebClient(token=tok)
 
     def lookup_user_id_by_email(self, email: str) -> Optional[str]:
         if not self.client:

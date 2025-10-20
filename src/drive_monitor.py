@@ -5,7 +5,7 @@ Drive監視スクリプト
 import os
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
-from .google_clients import drive, docs
+from .google_clients import drive, docs, calendar
 from .minutes_repo import (
     get_all_sheet_names,
     read_sheet_rows,
@@ -16,6 +16,8 @@ from .minutes_repo import (
 
 DRIVE_FOLDER_ID = os.getenv("DRIVE_FOLDER_ID", "").strip()
 DEFAULT_TIMEZONE = os.getenv("DEFAULT_TIMEZONE", "Asia/Tokyo")
+CALENDAR_ID = os.getenv("CALENDAR_ID", "primary").strip()
+WORKSPACE_DOMAINS = [d.strip() for d in os.getenv("WORKSPACE_DOMAINS", "").split(",") if d.strip()]
 
 
 def get_doc_text_content(doc_id: str) -> str:
@@ -76,6 +78,56 @@ def list_docs_in_folder(folder_id: str, hours_ago: int = 3) -> List[Dict[str, st
     print(f"[drive_monitor] Found {len(files)} new docs in folder {folder_id}")
     
     return files
+
+
+def _lookup_calendar_event_and_attendees(keyword: str, target_date_str: str) -> (Optional[str], List[str]):
+    """同日のカレンダーから対象イベントを特定し、開始日（YYYY-MM-DD）と出席者メールを返す。
+    - keyword がタイトルに含まれるイベントを優先
+    - 見つからない場合は当日の最初のイベント
+    """
+    try:
+        cal_svc = calendar()
+        # 日付範囲（当日）
+        from datetime import datetime, timedelta
+        import pytz
+        tz = pytz.timezone(DEFAULT_TIMEZONE)
+        dt = tz.localize(datetime.strptime(target_date_str, "%Y-%m-%d"))
+        time_min = dt.isoformat()
+        time_max = (dt + timedelta(days=1)).isoformat()
+        items = cal_svc.events().list(
+            calendarId=CALENDAR_ID or "primary",
+            timeMin=time_min,
+            timeMax=time_max,
+            singleEvents=True,
+            orderBy="startTime",
+        ).execute().get("items", [])
+        if not items:
+            return None, []
+        # キーワード一致優先
+        target = None
+        if keyword:
+            for ev in items:
+                summary = ev.get("summary", "")
+                if keyword in summary:
+                    target = ev
+                    break
+        if not target:
+            target = items[0]
+        # 開始日の正規化
+        start = target.get("start", {})
+        start_dt = start.get("dateTime") or start.get("date")
+        if start_dt and len(start_dt) >= 10:
+            event_date = start_dt[:10]
+        else:
+            event_date = target_date_str
+        # 出席者メール
+        attendees = [a.get("email", "") for a in (target.get("attendees") or []) if a.get("email")]
+        # ワークスペースドメインでフィルタ
+        if WORKSPACE_DOMAINS:
+            attendees = [e for e in attendees if any(e.endswith(f"@{dom}") for dom in WORKSPACE_DOMAINS)]
+        return event_date, attendees
+    except Exception:
+        return None, []
 
 
 def doc_already_exists(sheet_name: str, doc_url: str) -> bool:
@@ -183,6 +235,7 @@ def monitor_and_update_sheets():
             "channel_id": default_channel_id,  # 既存行から自動コピー
             "participants": "",
             "minutes_thread_ts": "",
+            "final_minutes_thread_ts": "",
             "hearing_thread_ts": "",
             "minutes_posted": "",
         }

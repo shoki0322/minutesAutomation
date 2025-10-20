@@ -86,6 +86,7 @@ def send_hearing_for_sheet(sheet_name: str, slack_client: SlackClient):
         next_meeting_date = row.get("next_meeting_date", "").strip()
         hearing_thread_ts = row.get("hearing_thread_ts", "").strip()
         minutes_thread_ts = row.get("minutes_thread_ts", "").strip()
+        final_minutes_thread_ts = row.get("final_minutes_thread_ts", "").strip()
         row_date = row.get("date", "").strip()
         today_str = now_jst().strftime("%Y-%m-%d")
         
@@ -110,8 +111,11 @@ def send_hearing_for_sheet(sheet_name: str, slack_client: SlackClient):
             print(f"[send_hearing_reminder] No channel_id for: {row.get('title')}")
             continue
         
-        # 議事録投稿のスレッドTSがない場合はスキップ
-        if not minutes_thread_ts:
+        # 投稿先スレッド（最終議事録があればそちらを優先）
+        target_thread_ts = final_minutes_thread_ts or minutes_thread_ts
+
+        # スレッドTSがない場合はスキップ
+        if not target_thread_ts:
             print(f"[send_hearing_reminder] No minutes_thread_ts for: {row.get('title')}")
             print(f"[send_hearing_reminder] Please post minutes first")
             continue
@@ -147,17 +151,17 @@ def send_hearing_for_sheet(sheet_name: str, slack_client: SlackClient):
         # メッセージ生成（メンション付与）
         message = create_hearing_message(next_meeting_date, participants, previous_responses, mentions)
         
-        # Slack投稿（議事録のスレッドに投稿）
+        # Slack投稿（議事録のスレッド＝最終があれば最終）
         print(f"[send_hearing_reminder] Sending hearing reminder for: {title}")
-        print(f"[send_hearing_reminder] Posting to thread: {minutes_thread_ts}")
-        thread_ts = slack_client.post_message(channel_id, message, thread_ts=minutes_thread_ts)
+        print(f"[send_hearing_reminder] Posting to thread: {target_thread_ts}")
+        thread_ts = slack_client.post_message(channel_id, message, thread_ts=target_thread_ts)
         
         if thread_ts:
             # 送信成功: hearing_thread_tsを記録（議事録と同じスレッド）
             row_number = row.get("_row_number")
             if row_number:
                 update_row(sheet_name, row_number, {
-                    "hearing_thread_ts": minutes_thread_ts,  # 議事録のスレッドTSを保存
+                    "hearing_thread_ts": target_thread_ts,  # 実際に投下したスレッドを保存
                     "updated_at": now_jst_str(),
                 })
                 print(f"[send_hearing_reminder] Successfully sent and updated row {row_number}")
