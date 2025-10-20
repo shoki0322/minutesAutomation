@@ -145,6 +145,29 @@ def _append_doc_url_to_event_description(cal_svc, calendar_id: str, event: dict,
     return True
 
 
+def _create_event_with_doc(cal_svc, calendar_id: str, date_str: str, title: str, doc_url: str, participant_emails: list) -> bool:
+    """イベントが無い場合に、次回会議日の17:00-18:00で新規作成し、説明にDoc URLを入れる。
+    戻り値: 作成成功でTrue。
+    注意: 書き込み権限（https://www.googleapis.com/auth/calendar）が必要。
+    """
+    try:
+        start_iso = f"{date_str}T17:00:00+09:00"
+        end_iso   = f"{date_str}T18:00:00+09:00"
+        body = {
+            "summary": f"{title}",
+            "description": f"次回議題: {doc_url}",
+            "start": {"dateTime": start_iso},
+            "end": {"dateTime": end_iso},
+        }
+        if participant_emails:
+            body["attendees"] = [{"email": e} for e in participant_emails]
+        cal_svc.events().insert(calendarId=calendar_id, body=body, sendUpdates="all").execute()
+        return True
+    except Exception as e:
+        print(f"[send_agenda_reminder] Failed to create calendar event (need calendar write scope?): {e}")
+        return False
+
+
 def send_agenda_for_sheet(sheet_name: str, slack_client: SlackClient):
     """1つのシートに対して議題共有送信チェック"""
     print(f"[send_agenda_reminder] Checking sheet: {sheet_name}")
@@ -212,7 +235,11 @@ def send_agenda_for_sheet(sheet_name: str, slack_client: SlackClient):
                     if _append_doc_url_to_event_description(cal_svc, calendar_id, ev, agenda_doc_url):
                         print(f"[send_agenda_reminder] Appended doc URL to calendar event: {ev.get('summary','')} ({ev.get('id')})")
                 else:
-                    print(f"[send_agenda_reminder] No calendar event found on {next_meeting_date} for {title}")
+                    # イベントが無ければ新規作成（17:00-18:00、出席者はparticipants）
+                    participants_str = row.get("participants", "").strip()
+                    emails = [p.strip() for p in participants_str.split(',') if p.strip()] if participants_str else []
+                    if _create_event_with_doc(cal_svc, calendar_id, next_meeting_date, title, agenda_doc_url, emails):
+                        print(f"[send_agenda_reminder] Created new event with agenda doc for {title} on {next_meeting_date}")
             except Exception as e:
                 print(f"[send_agenda_reminder] Failed to append doc to calendar: {e}")
         else:

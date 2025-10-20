@@ -81,7 +81,7 @@ def list_docs_in_folder(folder_id: str, hours_ago: int = 3) -> List[Dict[str, st
 
 
 def _lookup_calendar_event_and_attendees(keyword: str, target_date_str: str) -> (Optional[str], List[str]):
-    """同日のカレンダーから対象イベントを特定し、開始日（YYYY-MM-DD）と出席者メールを返す。
+    """同日のカレンダーから対象イベントを特定し、開始日時（ISO文字列）と出席者メールを返す。
     - keyword がタイトルに含まれるイベントを優先
     - 見つからない場合は当日の最初のイベント
     """
@@ -113,19 +113,23 @@ def _lookup_calendar_event_and_attendees(keyword: str, target_date_str: str) -> 
                     break
         if not target:
             target = items[0]
-        # 開始日の正規化
+        # 開始日時の正規化（dateTime優先。なければ 00:00 固定で補完）
         start = target.get("start", {})
         start_dt = start.get("dateTime") or start.get("date")
-        if start_dt and len(start_dt) >= 10:
-            event_date = start_dt[:10]
+        if start_dt:
+            if "T" in start_dt:
+                start_iso = start_dt
+            else:
+                # 終日予定など date の場合は 00:00 を補完（JST）
+                start_iso = f"{start_dt}T00:00:00+09:00"
         else:
-            event_date = target_date_str
+            start_iso = f"{target_date_str}T00:00:00+09:00"
         # 出席者メール
         attendees = [a.get("email", "") for a in (target.get("attendees") or []) if a.get("email")]
         # ワークスペースドメインでフィルタ
         if WORKSPACE_DOMAINS:
             attendees = [e for e in attendees if any(e.endswith(f"@{dom}") for dom in WORKSPACE_DOMAINS)]
-        return event_date, attendees
+        return start_iso, attendees
     except Exception:
         return None, []
 
@@ -166,7 +170,7 @@ def monitor_and_update_sheets():
         title = doc_file.get("name", "無題")
         created_time = doc_file.get("createdTime", "")
         
-        # 作成日をパース
+        # 作成日の初期値
         try:
             created_dt = datetime.fromisoformat(created_time.replace("Z", "+00:00"))
             date_str = created_dt.strftime("%Y-%m-%d")
@@ -177,9 +181,32 @@ def monitor_and_update_sheets():
         
         # Docsの本文を取得
         summary = get_doc_text_content(doc_id)
+
+        # カレンダーから当日イベントを照会して、正確な日付と参加者を補完
+        # 例: タイトルに「AI基盤」などのキーワードが含まれていれば、そのイベントを優先
+        event_start_iso, attendees = _lookup_calendar_event_and_attendees(title, date_str)
+        date_display = ""
+        if event_start_iso:
+            # date列は時刻付きISOに（下流で日付だけ必要な箇所はスライスして使用）
+            date_str = event_start_iso
+            try:
+                dt = datetime.fromisoformat(event_start_iso.replace("Z", "+00:00"))
+                dow = "月火水木金土日"[dt.weekday()]
+                date_display = f"{dt.month}月{dt.day}日（{dow}）{dt.strftime('%H:%M')}~{(dt + timedelta(hours=1)).strftime('%H:%M')}"
+            except Exception:
+                date_display = ""
         
-        # next_meeting_date = date + 7日
-        next_meeting_date = date_plus_days(date_str, 7)
+        # next_meeting_date = date + 7日（ベースは日付部）
+        next_meeting_date = date_plus_days(date_str[:10], 7)
+        # 表示用の next_meeting_date_display（開始+7日，同じ時刻帯を仮適用）
+        next_display = ""
+        try:
+            dt0 = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+            dt1 = dt0 + timedelta(days=7)
+            dow1 = "月火水木金土日"[dt1.weekday()]
+            next_display = f"{dt1.month}月{dt1.day}日（{dow1}）{dt1.strftime('%H:%M')}~{(dt1 + timedelta(hours=1)).strftime('%H:%M')}"
+        except Exception:
+            next_display = ""
         
         # タイトルにシート名が含まれるかチェックして振り分け
         # 例：「AI基盤MTG」→「AI基盤」シート、「BI基盤MTG」→「BI基盤」シート
@@ -219,7 +246,9 @@ def monitor_and_update_sheets():
             "summary": summary,
             "title": title,
             "date": date_str,
+            "date_display": date_display,
             "next_meeting_date": next_meeting_date,
+            "next_meeting_date_display": next_display,
             "updated_at": now_jst_str(),
             "formatted_minutes": "",
             "decisions": "",
@@ -233,7 +262,7 @@ def monitor_and_update_sheets():
             "remarks": "",
             "meeting_key": "",
             "channel_id": default_channel_id,  # 既存行から自動コピー
-            "participants": "",
+            "participants": ", ".join(attendees) if attendees else "",
             "minutes_thread_ts": "",
             "final_minutes_thread_ts": "",
             "hearing_thread_ts": "",
