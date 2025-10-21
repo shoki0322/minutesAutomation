@@ -18,7 +18,7 @@ from .minutes_repo import (
 # Slackの投稿先はシートの channel_id のみを使用する（環境変数は使わない）
 
 
-def get_calendar_participants(date: str, title: str = "", meeting_key: str = "") -> List[str]:
+def get_calendar_participants(date: str, title: str = "", meeting_key: str = "", require_exact_title: bool = False) -> List[str]:
     """
     Calendar APIから該当会議の参加者メールアドレスを取得
     date: 会議日（YYYY-MM-DD形式）
@@ -62,19 +62,37 @@ def get_calendar_participants(date: str, title: str = "", meeting_key: str = "")
         
         # 1. タイトルで完全一致または部分一致を探す
         if title:
+            # "-"の前までをベースタイトルとして扱う（例: "[weekly] AI基盤MTG - 2025/..." -> "[weekly] AI基盤MTG")
+            def normalize(s: str) -> str:
+                return (s or "").replace("\u3000", " ").strip()
+            splitchars = ["-", "－", "–", "—"]
+            base_title = None
+            for ch in splitchars:
+                if ch in title:
+                    base_title = title.split(ch, 1)[0]
+                    break
+            if base_title is None:
+                base_title = title
+            base_title = normalize(base_title)
+
             for event in events:
-                summary = event.get("summary", "")
+                summary = normalize(event.get("summary", ""))
                 # 完全一致
-                if summary == title:
+                if summary == base_title:
                     target_event = event
                     print(f"[check_and_post_minutes] Found event by exact title match: {summary}")
                     break
-            
-            # 部分一致（完全一致がない場合）
-            if not target_event:
+
+            # 厳密一致のみ要求の場合はここで終了
+            if require_exact_title and not target_event:
+                print("[check_and_post_minutes] No exact title match found; skipping attendees update")
+                return []
+
+            # 厳密一致でない場合は部分一致も許容
+            if not require_exact_title and not target_event:
                 for event in events:
-                    summary = event.get("summary", "")
-                    if title in summary or summary in title:
+                    summary = normalize(event.get("summary", ""))
+                    if base_title in summary or summary in base_title:
                         target_event = event
                         print(f"[check_and_post_minutes] Found event by partial title match: {summary}")
                         break
@@ -89,14 +107,20 @@ def get_calendar_participants(date: str, title: str = "", meeting_key: str = "")
                     print(f"[check_and_post_minutes] Found event by meeting_key: {summary}")
                     break
         
-        # 3. その日の最初のイベントを使用（フォールバック）
-        if not target_event:
+        # 3. フォールバック（厳密一致要求時は使わない）
+        if not target_event and not require_exact_title:
             target_event = events[0]
             print(f"[check_and_post_minutes] Using first event of the day: {target_event.get('summary', '')}")
+        if not target_event:
+            return []
         
         # 参加者を取得
         attendees = target_event.get("attendees", [])
         emails = [a["email"] for a in attendees if "email" in a]
+        # ワークスペースドメインで限定（任意）
+        workspace_domains = [d.strip() for d in os.getenv("WORKSPACE_DOMAINS", "").split(",") if d.strip()]
+        if workspace_domains:
+            emails = [e for e in emails if any(e.endswith(f"@{dom}") for dom in workspace_domains)]
         
         print(f"[check_and_post_minutes] Found {len(emails)} participants")
         return emails
@@ -142,13 +166,14 @@ def check_and_post_for_sheet(sheet_name: str, slack_client: SlackClient):
         remarks = row.get("remarks", "").strip()
         minutes_posted = row.get("minutes_posted", "").strip()
         minutes_thread_ts = row.get("minutes_thread_ts", "").strip()
-        date = row.get("date", "").strip()
+        date_raw = row.get("date", "").strip()
+        date_day = date_raw[:10] if date_raw else ""
         title = row.get("title", "無題")
         meeting_key = row.get("meeting_key", "")
         channel_id = row.get("channel_id", "").strip()
         
         print(f"[check_and_post_minutes] Checking row: {title}")
-        print(f"  - date: '{date}' (today: '{today}', match: {date == today})")
+        print(f"  - date: '{date_raw}' (today: '{today}', match: {date_day == today})")
         print(f"  - formatted_minutes: {'YES' if formatted_minutes else 'NO'} (length: {len(formatted_minutes)})")
         print(f"  - minutes_posted: '{minutes_posted}'")
         print(f"  - minutes_thread_ts: '{minutes_thread_ts}'")
@@ -156,8 +181,8 @@ def check_and_post_for_sheet(sheet_name: str, slack_client: SlackClient):
         
         # まずカレンダーAPIを最初に実行（当日分のみ）。参加者をシートに保存。
         participant_emails: List[str] = []
-        if date == today:
-            participant_emails = get_calendar_participants(date, title, meeting_key)
+        if date_day == today:
+            participant_emails = get_calendar_participants(date_day, title, meeting_key, require_exact_title=True)
             participants_str_existing = row.get("participants", "").strip()
             participants_str_new = ", ".join(participant_emails) if participant_emails else ""
             if participants_str_new and participants_str_new != participants_str_existing:
@@ -170,7 +195,7 @@ def check_and_post_for_sheet(sheet_name: str, slack_client: SlackClient):
                     print(f"[check_and_post_minutes] Participants updated for row {row_number}")
 
         # 条件1: 会議当日のみ投稿
-        if date != today:
+        if date_day != today:
             print(f"  → SKIP: date mismatch")
             continue
         
@@ -199,7 +224,7 @@ def check_and_post_for_sheet(sheet_name: str, slack_client: SlackClient):
         
         # 参加者は既に取得済み（安全のため未取得なら再取得）
         if not participant_emails:
-            participant_emails = get_calendar_participants(date, title, meeting_key)
+            participant_emails = get_calendar_participants(date_day, title, meeting_key, require_exact_title=True)
         mentions = []
         
         for email in participant_emails:
