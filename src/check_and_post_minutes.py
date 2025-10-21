@@ -117,7 +117,7 @@ def get_calendar_participants(date: str, title: str = "", meeting_key: str = "",
         # 参加者を取得
         attendees = target_event.get("attendees", [])
         emails = [a["email"] for a in attendees if "email" in a]
-        # ワークスペースドメインで限定（任意）
+        # ワークスペースドメインで限定（必須運用）
         workspace_domains = [d.strip() for d in os.getenv("WORKSPACE_DOMAINS", "").split(",") if d.strip()]
         if workspace_domains:
             emails = [e for e in emails if any(e.endswith(f"@{dom}") for dom in workspace_domains)]

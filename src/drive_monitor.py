@@ -103,16 +103,41 @@ def _lookup_calendar_event_and_attendees(keyword: str, target_date_str: str) -> 
         ).execute().get("items", [])
         if not items:
             return None, []
-        # キーワード一致優先
-        target = None
-        if keyword:
-            for ev in items:
-                summary = ev.get("summary", "")
-                if keyword in summary:
-                    target = ev
-                    break
-        if not target:
-            target = items[0]
+        # キーワード（ベースタイトル）一致の候補を抽出
+        def normalize(s: str) -> str:
+            return (s or "").replace("\u3000", " ").strip()
+        base_title = None
+        for ch in ["-", "－", "–", "—"]:
+            if ch in keyword:
+                base_title = keyword.split(ch, 1)[0]
+                break
+        if base_title is None:
+            base_title = keyword
+        base_title = normalize(base_title)
+
+        candidates = []
+        for ev in items:
+            if base_title and base_title in normalize(ev.get("summary", "")):
+                candidates.append(ev)
+        if not candidates:
+            candidates = items
+
+        # 17:00に最も近い開始時刻のイベントを選択
+        def start_minutes(ev) -> int:
+            st = ev.get("start", {})
+            v = st.get("dateTime") or st.get("date")
+            if not v:
+                return 0
+            try:
+                dt = datetime.fromisoformat(v.replace("Z", "+00:00")).astimezone(tz)
+            except Exception:
+                try:
+                    dt = tz.localize(datetime.strptime(v, "%Y-%m-%d"))
+                except Exception:
+                    return 0
+            return dt.hour * 60 + dt.minute
+
+        target = min(candidates, key=lambda ev: abs(start_minutes(ev) - (17 * 60)))
         # 開始日時の正規化（dateTime優先。なければ 00:00 固定で補完）
         start = target.get("start", {})
         start_dt = start.get("dateTime") or start.get("date")
