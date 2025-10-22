@@ -54,3 +54,6 @@ jobs:
 
       - name: Collect hearing responses
         run: python -m src.collect_hearing_responses
+
+      - name: Collect review requests
+        run: python -m src.collect_review_requests

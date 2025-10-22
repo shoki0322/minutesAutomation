@@ -19,34 +19,33 @@ DEFAULT_CHANNEL_ID = os.getenv("DEFAULT_CHANNEL_ID", "").strip()
 
 
 def should_collect_responses(next_meeting_date_str: str) -> bool:
-    """
-    ヒアリング回答を収集すべきかどうか判定
-    next_meeting_dateの1日前09:00に実行される想定
-    現在時刻が1日前の09:00~10:00の範囲内ならTrue
-    """
+    """従来ルール: next_meeting_dateの1日前09:00以降。"""
     if not next_meeting_date_str:
         return False
-    
     try:
-        # next_meeting_dateをパース
         meeting_date = datetime.strptime(next_meeting_date_str, "%Y-%m-%d")
-        
-        # 1日前
         target_date = meeting_date - timedelta(days=1)
-        
-        # 現在のJST時刻
         now = now_jst()
-        
-        # 同じ日付で、09:00以降
-        # GitHub Actionsは毎時00分実行なので、09:00以降ならOK
-        # 既に収集済みの場合はhearing_responses01-04が埋まっているのでスキップされる
-        if now.date() == target_date.date() and now.hour >= 9:
-            return True
-        
-        return False
-    
+        return now.date() == target_date.date() and now.hour >= 9
     except Exception as e:
         print(f"[collect_hearing_responses] Error parsing date {next_meeting_date_str}: {e}")
+        return False
+
+
+def should_collect_after_minutes(meeting_date_iso_or_date: str) -> bool:
+    """新ルール: minutes（案内）投下の翌日09:00以降に収集。
+    meeting_date_iso_or_date は ISO日時 or YYYY-MM-DD。
+    """
+    if not meeting_date_iso_or_date:
+        return False
+    try:
+        base = meeting_date_iso_or_date[:10]
+        d = datetime.strptime(base, "%Y-%m-%d")
+        target = d + timedelta(days=1)
+        now = now_jst()
+        return now.date() == target.date() and now.hour >= 9
+    except Exception as e:
+        print(f"[collect_hearing_responses] Error parsing meeting date {meeting_date_iso_or_date}: {e}")
         return False
 
 
@@ -95,13 +94,22 @@ def collect_responses_for_sheet(sheet_name: str, slack_client: SlackClient):
     for row in rows:
         next_meeting_date = row.get("next_meeting_date", "").strip()
         hearing_thread_ts = row.get("hearing_thread_ts", "").strip()
+        minutes_thread_ts = row.get("minutes_thread_ts", "").strip()
+        row_date = (row.get("date", "") or "").strip()
         
-        # hearing_thread_tsがない場合はスキップ
-        if not hearing_thread_ts:
+        # 収集対象スレッド: hearing_thread_ts 優先、なければ minutes_thread_ts（案内翌朝）
+        target_thread_ts = hearing_thread_ts or minutes_thread_ts
+        if not target_thread_ts:
             continue
         
         # 収集すべきか判定
-        if not should_collect_responses(next_meeting_date):
+        collect = False
+        if hearing_thread_ts:
+            collect = should_collect_responses(next_meeting_date)
+        else:
+            # 案内（minutes）ベースの収集タイミング
+            collect = should_collect_after_minutes(row_date)
+        if not collect:
             continue
         
         # 既に収集済みかチェック（hearing_responses01が既に入っていたらスキップ）
@@ -120,7 +128,7 @@ def collect_responses_for_sheet(sheet_name: str, slack_client: SlackClient):
         
         # スレッドから回答を収集
         print(f"[collect_hearing_responses] Collecting responses for: {title}")
-        responses = collect_thread_responses(slack_client, channel_id, hearing_thread_ts)
+        responses = collect_thread_responses(slack_client, channel_id, target_thread_ts)
         
         if not responses:
             print(f"[collect_hearing_responses] No responses found for: {title}")

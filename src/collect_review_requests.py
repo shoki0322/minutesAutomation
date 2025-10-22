@@ -6,11 +6,13 @@
 import os
 import json
 from typing import List, Dict
+from datetime import datetime, timedelta
 from .slack_client import SlackClient
 from .minutes_repo import (
     get_all_sheet_names,
     read_sheet_rows,
     update_row,
+    now_jst,
     now_jst_str,
 )
 
@@ -25,6 +27,24 @@ def reply_matches(text: str) -> bool:
     return f"<@{REVIEW_USER_ID}>" in text
 
 
+def should_collect_after_minutes(meeting_date_iso_or_date: str) -> bool:
+    """
+    minutes（案内）投下日の『翌日09:00以降（JST）』に収集を行う。
+    meeting_date_iso_or_date は ISO日時 または YYYY-MM-DD を想定。
+    """
+    if not meeting_date_iso_or_date:
+        return False
+    try:
+        base = meeting_date_iso_or_date[:10]
+        meeting_date = datetime.strptime(base, "%Y-%m-%d")
+        target = meeting_date + timedelta(days=1)
+        now = now_jst()
+        return now.date() == target.date() and now.hour >= 9
+    except Exception as e:
+        print(f"[collect_review_requests] Error parsing meeting date {meeting_date_iso_or_date}: {e}")
+        return False
+
+
 def collect_for_sheet(sheet_name: str, slack_client: SlackClient):
     print(f"[collect_review_requests] Checking sheet: {sheet_name}")
     rows = read_sheet_rows(sheet_name)
@@ -32,7 +52,12 @@ def collect_for_sheet(sheet_name: str, slack_client: SlackClient):
     for row in rows:
         channel_id = row.get("channel_id", "").strip() or DEFAULT_CHANNEL_ID
         thread_ts = row.get("minutes_thread_ts", "").strip()
+        row_date = (row.get("date", "") or "").strip()
         if not channel_id or not thread_ts:
+            continue
+
+        # 案内翌朝9時以降のみ収集
+        if not should_collect_after_minutes(row_date):
             continue
 
         replies = slack_client.fetch_thread_replies(channel_id, thread_ts)
