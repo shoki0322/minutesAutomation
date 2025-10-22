@@ -57,3 +57,6 @@ jobs:
 
       - name: Collect review requests
         run: python -m src.collect_review_requests
+
+      - name: Post final minutes (auto)
+        run: python -m src.post_final_minutes

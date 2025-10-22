@@ -33,20 +33,8 @@ def should_collect_responses(next_meeting_date_str: str) -> bool:
 
 
 def should_collect_after_minutes(meeting_date_iso_or_date: str) -> bool:
-    """新ルール: minutes（案内）投下の翌日09:00以降に収集。
-    meeting_date_iso_or_date は ISO日時 or YYYY-MM-DD。
-    """
-    if not meeting_date_iso_or_date:
-        return False
-    try:
-        base = meeting_date_iso_or_date[:10]
-        d = datetime.strptime(base, "%Y-%m-%d")
-        target = d + timedelta(days=1)
-        now = now_jst()
-        return now.date() == target.date() and now.hour >= 9
-    except Exception as e:
-        print(f"[collect_hearing_responses] Error parsing meeting date {meeting_date_iso_or_date}: {e}")
-        return False
+    """[無効化方針] ヒアリング収集はhearing_thread_tsのみ対象にするため未使用。"""
+    return False
 
 
 def parse_slack_timestamp(ts: str) -> float:
@@ -96,19 +84,14 @@ def collect_responses_for_sheet(sheet_name: str, slack_client: SlackClient):
         hearing_thread_ts = row.get("hearing_thread_ts", "").strip()
         minutes_thread_ts = row.get("minutes_thread_ts", "").strip()
         row_date = (row.get("date", "") or "").strip()
-        
-        # 収集対象スレッド: hearing_thread_ts 優先、なければ minutes_thread_ts（案内翌朝）
-        target_thread_ts = hearing_thread_ts or minutes_thread_ts
+
+        # 収集対象スレッド: ヒアリング専用（hearing_thread_ts のみ）。レビューとの混在を防止
+        target_thread_ts = hearing_thread_ts
         if not target_thread_ts:
             continue
         
         # 収集すべきか判定
-        collect = False
-        if hearing_thread_ts:
-            collect = should_collect_responses(next_meeting_date)
-        else:
-            # 案内（minutes）ベースの収集タイミング
-            collect = should_collect_after_minutes(row_date)
+        collect = should_collect_responses(next_meeting_date)
         if not collect:
             continue
         
