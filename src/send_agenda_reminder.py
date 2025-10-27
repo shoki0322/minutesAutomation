@@ -248,20 +248,35 @@ def send_agenda_for_sheet(sheet_name: str, slack_client: SlackClient):
         # Slackにはテキストのみ送る（Docsリンクは含めない）
         message = create_agenda_message(title, next_meeting_date, next_agenda, mentions)
         
-        # Slack投稿
+        # Slack投稿（親メッセージ）
         print(f"[send_agenda_reminder] Sending agenda reminder for: {title}")
         ts = slack_client.post_message(channel_id, message)
         
         if ts:
-            # 送信成功: remarksに送信済みマークを追記
+            # 送信成功: remarksに送信済みマークを追記 + agenda_thread_ts の保存（なければ minutes_posted を後方互換で使用）
             row_number = row.get("_row_number")
             if row_number:
                 new_remarks = f"{remarks} {sent_marker}".strip()
-                update_row(sheet_name, row_number, {
+                updates = {
                     "remarks": new_remarks,
                     "updated_at": now_jst_str(),
-                })
+                }
+                if "agenda_thread_ts" in row:
+                    updates["agenda_thread_ts"] = ts
+                elif "minutes_posted" in row:
+                    updates["minutes_posted"] = ts
+                update_row(sheet_name, row_number, updates)
                 print(f"[send_agenda_reminder] Successfully sent and updated row {row_number}")
+            # 案内: 追加議題・参考リンクの締切をスレッドに投稿（こちらが正規の送付先）
+            try:
+                guidance = (
+                    "追加の議題や参考リンクがある場合は、会議開始の10分前までにこのスレッドへ投稿してください。\n"
+                    "（後からの共有は次回に回る可能性があります）"
+                )
+                slack_client.post_message(channel_id, guidance, thread_ts=ts)
+                print("[send_agenda_reminder] Posted agenda guidance in thread")
+            except Exception as e:
+                print(f"[send_agenda_reminder] Failed to post agenda guidance: {e}")
         else:
             print(f"[send_agenda_reminder] Failed to send agenda for: {title}")
 

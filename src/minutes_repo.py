@@ -36,6 +36,7 @@ EXPECTED_COLUMNS = [
     "minutes_thread_ts",
     "final_minutes_thread_ts",
     "hearing_thread_ts",
+    "agenda_thread_ts",
     "updated_at",
     "status",
     "remarks",
