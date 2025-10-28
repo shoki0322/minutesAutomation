@@ -270,8 +270,19 @@ def send_agenda_for_sheet(sheet_name: str, slack_client: SlackClient):
             # 案内: 追加議題・参考リンクの締切をスレッドに投稿（こちらが正規の送付先）
             try:
                 guidance = (
-                    "追加の議題や参考リンクがある場合は、会議開始の10分前までにこのスレッドへ投稿してください。\n"
-                    "（後からの共有は次回に回る可能性があります）"
+                    "アジェンダに議案や資料を追加したい場合は、こちらのスレッドで下記フォーマットで@DR.ベガパンク宛に送信ください。\n"
+                    "修正要望がない場合は返信不要です。\n"
+                    "【期日:会議開始10分前まで】\n"
+                    "⇩議案追加＆資料追加依頼フォーマット　⇩　※必要な方のみでOK\n"
+                    "【議案追加】\n"
+                    "・タイトル：\n"
+                    "・背景：\n"
+                    "・論点：\n"
+                    "・担当：\n"
+                    "【資料追加】 ※対象議案は番号のみでOK\n"
+                    "・対象議案：\n"
+                    "・資料名：\n"
+                    "・URL："
                 )
                 slack_client.post_message(channel_id, guidance, thread_ts=ts)
                 print("[send_agenda_reminder] Posted agenda guidance in thread")
