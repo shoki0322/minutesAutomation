@@ -59,9 +59,10 @@ def get_all_sheet_names() -> List[str]:
 def read_sheet_rows(sheet_name: str) -> List[Dict[str, str]]:
     """指定シートの全行を辞書のリストで取得"""
     svc = _sheets_service()
+    # 全列対応：ヘッダーは1行目全体、データはシート全体から取得
     result = svc.values().get(
         spreadsheetId=PRIMARY_SHEET_ID,
-        range=f"{sheet_name}!A:Z"
+        range=f"{sheet_name}"
     ).execute()
     
     values = result.get("values", [])
@@ -85,7 +86,7 @@ def update_row(sheet_name: str, row_number: int, updates: Dict[str, str]) -> Non
     # まず現在のヘッダーを取得
     result = svc.values().get(
         spreadsheetId=PRIMARY_SHEET_ID,
-        range=f"{sheet_name}!A1:Z1"
+        range=f"{sheet_name}!1:1"
     ).execute()
     
     headers = result.get("values", [[]])[0]
@@ -96,7 +97,7 @@ def update_row(sheet_name: str, row_number: int, updates: Dict[str, str]) -> Non
     # 現在の行を取得
     current_row_result = svc.values().get(
         spreadsheetId=PRIMARY_SHEET_ID,
-        range=f"{sheet_name}!A{row_number}:Z{row_number}"
+        range=f"{sheet_name}!{row_number}:{row_number}"
     ).execute()
     
     current_row = current_row_result.get("values", [[]])[0] if current_row_result.get("values") else []
@@ -128,7 +129,7 @@ def append_row(sheet_name: str, row_data: Dict[str, str]) -> None:
     # ヘッダーを取得
     result = svc.values().get(
         spreadsheetId=PRIMARY_SHEET_ID,
-        range=f"{sheet_name}!A1:Z1"
+        range=f"{sheet_name}!1:1"
     ).execute()
     
     headers = result.get("values", [[]])[0]
@@ -142,7 +143,7 @@ def append_row(sheet_name: str, row_data: Dict[str, str]) -> None:
     # 追加
     svc.values().append(
         spreadsheetId=PRIMARY_SHEET_ID,
-        range=f"{sheet_name}!A:Z",
+        range=f"{sheet_name}",
         valueInputOption="RAW",
         insertDataOption="INSERT_ROWS",
         body={"values": [new_row]}
