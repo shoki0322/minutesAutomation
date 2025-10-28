@@ -18,6 +18,8 @@ DRIVE_FOLDER_ID = os.getenv("DRIVE_FOLDER_ID", "").strip()
 DEFAULT_TIMEZONE = os.getenv("DEFAULT_TIMEZONE", "Asia/Tokyo")
 CALENDAR_ID = os.getenv("CALENDAR_ID", "primary").strip()
 WORKSPACE_DOMAINS = [d.strip() for d in os.getenv("WORKSPACE_DOMAINS", "").split(",") if d.strip()]
+LOOKBACK_HOURS = int(os.getenv("DRIVE_LOOKBACK_HOURS", "3") or "3")
+DEFAULT_TARGET_SHEET = os.getenv("DEFAULT_TARGET_SHEET", "").strip()
 
 
 def get_doc_text_content(doc_id: str) -> str:
@@ -56,7 +58,8 @@ def list_docs_in_folder(folder_id: str, hours_ago: int = 3) -> List[Dict[str, st
     # 過去N時間以内のファイルを検索
     from datetime import datetime, timezone
     cutoff_time = datetime.now(timezone.utc) - timedelta(hours=hours_ago)
-    cutoff_str = cutoff_time.strftime("%Y-%m-%dT%H:%M:%S")
+    # RFC3339（UTC）に正規化
+    cutoff_str = cutoff_time.isoformat(timespec='seconds').replace('+00:00', 'Z')
     
     query = (
         f"'{folder_id}' in parents "
@@ -75,6 +78,7 @@ def list_docs_in_folder(folder_id: str, hours_ago: int = 3) -> List[Dict[str, st
     ).execute()
     
     files = results.get("files", [])
+    print(f"[drive_monitor] Using cutoff createdTime > {cutoff_str} (UTC), hours_ago={hours_ago}")
     print(f"[drive_monitor] Found {len(files)} new docs in folder {folder_id}")
     
     return files
@@ -176,9 +180,11 @@ def monitor_and_update_sheets():
         return
     
     print(f"[drive_monitor] Monitoring folder: {DRIVE_FOLDER_ID}")
+    if DEFAULT_TARGET_SHEET:
+        print(f"[drive_monitor] DEFAULT_TARGET_SHEET: {DEFAULT_TARGET_SHEET}")
     
-    # 過去3時間以内の新規Docsを取得（2時間に1回実行なので余裕を持たせる）
-    new_docs = list_docs_in_folder(DRIVE_FOLDER_ID, hours_ago=3)
+    # 直近の新規Docsを取得（環境変数 DRIVE_LOOKBACK_HOURS で調整可能）
+    new_docs = list_docs_in_folder(DRIVE_FOLDER_ID, hours_ago=LOOKBACK_HOURS)
     
     if not new_docs:
         print("[drive_monitor] No new documents found.")
@@ -186,7 +192,7 @@ def monitor_and_update_sheets():
     
     # 全シート名を取得
     sheet_names = get_all_sheet_names()
-    print(f"[drive_monitor] Found {len(sheet_names)} sheets")
+    print(f"[drive_monitor] Found {len(sheet_names)} sheets: {sheet_names}")
     
     # 各新規Docsに対して処理
     for doc_file in new_docs:
@@ -248,8 +254,12 @@ def monitor_and_update_sheets():
                 break
         
         if not target_sheet:
-            print(f"[drive_monitor] No matching sheet found for title: {title} (skipping)")
-            continue
+            if DEFAULT_TARGET_SHEET and DEFAULT_TARGET_SHEET in sheet_names:
+                target_sheet = DEFAULT_TARGET_SHEET
+                print(f"[drive_monitor] No matching sheet. Falling back to DEFAULT_TARGET_SHEET='{DEFAULT_TARGET_SHEET}'")
+            else:
+                print(f"[drive_monitor] No matching sheet found for title: {title} (skipping)")
+                continue
         
         # 重複チェック
         if doc_already_exists(target_sheet, doc_url):
