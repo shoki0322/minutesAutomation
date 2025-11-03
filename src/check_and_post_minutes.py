@@ -14,7 +14,7 @@ from .minutes_repo import (
     update_row,
     now_jst_str,
 )
-from .post_test_md import split_main_and_thread
+from .text_split import split_main_and_thread
 
 # Slackの投稿先はシートの channel_id のみを使用する（環境変数は使わない）
 
