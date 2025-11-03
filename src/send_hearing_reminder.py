@@ -115,8 +115,24 @@ def send_hearing_for_sheet(sheet_name: str, slack_client: SlackClient):
             print(f"[send_hearing_reminder] No channel_id for: {row.get('title')}")
             continue
         
-        # 投稿先スレッド（最終議事録があればそちらを優先）
-        target_thread_ts = final_minutes_thread_ts or minutes_thread_ts
+        # 投稿先スレッドの決定ロジック
+        # - final_minutes_thread_ts が存在し、かつ返信がある場合は final を優先
+        # - final に返信が無い（= 親のみ）場合は minutes_thread_ts を優先（修正なしとみなす）
+        # - どちらも無ければスキップ
+        target_thread_ts = None
+        if final_minutes_thread_ts:
+            try:
+                replies = slack_client.fetch_thread_replies(channel_id, final_minutes_thread_ts)
+                # Slack APIは親メッセージも含む返却のため、2件以上で「返信あり」とみなす
+                if len(replies) >= 2:
+                    target_thread_ts = final_minutes_thread_ts
+                else:
+                    target_thread_ts = minutes_thread_ts or final_minutes_thread_ts
+            except Exception as e:
+                print(f"[send_hearing_reminder] Failed to check final thread replies: {e}")
+                target_thread_ts = minutes_thread_ts or final_minutes_thread_ts
+        else:
+            target_thread_ts = minutes_thread_ts
 
         # スレッドTSがない場合はスキップ
         if not target_thread_ts:

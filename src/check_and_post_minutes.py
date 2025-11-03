@@ -14,6 +14,7 @@ from .minutes_repo import (
     update_row,
     now_jst_str,
 )
+from .post_test_md import split_main_and_thread
 
 # Slackの投稿先はシートの channel_id のみを使用する（環境変数は使わない）
 
@@ -237,16 +238,17 @@ def check_and_post_for_sheet(sheet_name: str, slack_client: SlackClient):
         # 参加者メールをカンマ区切りで保存用に整形
         participants_str = ", ".join(participant_emails) if participant_emails else ""
         
-        # 投稿本文（formatted_minutesをそのまま投稿）
+        # 本文とスレッドに分割（決定事項の詳細 以下はスレッドへ）
+        main_text, thread_text = split_main_and_thread(formatted_minutes)
+
+        # 親メッセージ本文を組み立て（メンションは親のみ）
         message_parts = []
-        
         if mentions_text:
             message_parts.append(mentions_text)
             message_parts.append("")
-        
-        message_parts.append(formatted_minutes)
-        
-        message = "\n".join(message_parts)
+        if main_text:
+            message_parts.append(main_text)
+        message = "\n".join(message_parts).rstrip()
         
         # Slack投稿（親メッセージ）
         print(f"[check_and_post_minutes] Posting minutes for: {title}")
@@ -262,6 +264,14 @@ def check_and_post_for_sheet(sheet_name: str, slack_client: SlackClient):
                     "minutes_thread_ts": ts,
                 })
                 print(f"[check_and_post_minutes] Successfully posted and updated row {row_number}")
+
+            # 決定事項の詳細 以降があればスレッドに投稿
+            try:
+                if thread_text:
+                    slack_client.post_message(channel_id, thread_text, thread_ts=ts)
+                    print("[check_and_post_minutes] Posted detail section in thread")
+            except Exception as e:
+                print(f"[check_and_post_minutes] Failed to post detail thread: {e}")
 
             # 追記: 修正依頼の案内をスレッドに投稿
             try:
