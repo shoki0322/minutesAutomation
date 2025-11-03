@@ -18,6 +18,7 @@ from .minutes_repo import (
     update_row,
     now_jst_str,
 )
+from .text_split import split_main_and_thread
 
 DEFAULT_CHANNEL_ID = os.getenv("DEFAULT_CHANNEL_ID", "").strip()
 
@@ -48,14 +49,28 @@ def post_for_sheet(sheet_name: str, slack_client: SlackClient):
             continue
 
         title = row.get("title", "無題")
+        # 本文とスレッドに分割（決定事項の詳細 以下はスレッドへ）。
+        main_text, thread_text = split_main_and_thread(text)
+        # 万一、親側が空になった場合は従来通り全文を親に投稿（重複回避）
+        if not (main_text or "").strip():
+            main_text, thread_text = text, ""
+
         print(f"[post_final_minutes] Posting final minutes for: {title}")
-        ts = slack_client.post_message(channel_id, text)
+        ts = slack_client.post_message(channel_id, main_text)
         if ts and row.get("_row_number"):
             update_row(sheet_name, row["_row_number"], {
                 "final_minutes_thread_ts": ts,
                 "updated_at": now_jst_str(),
             })
             print(f"[post_final_minutes] Posted ts={ts} and updated row {row['_row_number']}")
+
+            # 決定事項の詳細 以降があればスレッドに投稿
+            try:
+                if thread_text:
+                    slack_client.post_message(channel_id, thread_text, thread_ts=ts)
+                    print("[post_final_minutes] Posted detail section in thread")
+            except Exception as e:
+                print(f"[post_final_minutes] Failed to post detail thread: {e}")
 
 
 def main():
