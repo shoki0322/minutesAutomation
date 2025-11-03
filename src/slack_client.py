@@ -4,6 +4,12 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "").strip()
+try:
+    from .text_normalize import normalize_slack_shortcodes
+except Exception:
+    # フォールバック: 正規化なし
+    def normalize_slack_shortcodes(text: str) -> str:
+        return text
 
 class SlackClient:
     def __init__(self, token: str | None = None) -> None:
@@ -41,7 +47,9 @@ class SlackClient:
             print("[slack] post_message skipped (no token).")
             return None
         try:
-            res = self.client.chat_postMessage(channel=channel, text=text, thread_ts=thread_ts, blocks=blocks)
+            # 日本語エイリアスの絵文字短縮系をUnicodeに正規化
+            safe_text = normalize_slack_shortcodes(text)
+            res = self.client.chat_postMessage(channel=channel, text=safe_text, thread_ts=thread_ts, blocks=blocks)
             ts = res["ts"]
             print(f"[slack] posted message ts={ts} channel={channel} thread_ts={thread_ts or '-'}")
             return ts
@@ -52,7 +60,7 @@ class SlackClient:
             if err == "not_in_channel":
                 if self._try_join_channel(channel):
                     try:
-                        res = self.client.chat_postMessage(channel=channel, text=text, thread_ts=thread_ts, blocks=blocks)
+                        res = self.client.chat_postMessage(channel=channel, text=safe_text, thread_ts=thread_ts, blocks=blocks)
                         ts = res["ts"]
                         print(f"[slack] posted message after join ts={ts} channel={channel}")
                         return ts
