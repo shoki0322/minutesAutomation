@@ -2,7 +2,6 @@
 最終議事録の自動投稿
 
 トリガー条件（行ごと）:
-- remarks に「✅ レビュー反映済み」を含む
 - final_minutes が非空
 - final_minutes_thread_ts が未設定（未投稿）
 
@@ -24,11 +23,9 @@ DEFAULT_CHANNEL_ID = os.getenv("DEFAULT_CHANNEL_ID", "").strip()
 
 
 def should_post_final(row: dict) -> bool:
-    remarks = (row.get("remarks") or "").strip()
-    has_flag = "✅ レビュー反映済み" in remarks
     has_text = bool((row.get("final_minutes") or "").strip())
     not_posted = not (row.get("final_minutes_thread_ts") or "").strip()
-    return has_flag and has_text and not_posted
+    return has_text and not_posted
 
 
 def post_for_sheet(sheet_name: str, slack_client: SlackClient):
