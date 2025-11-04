@@ -56,9 +56,10 @@ def create_google_doc(title: str, content: str) -> str:
 
 def should_send_agenda_reminder(next_meeting_date_str: str) -> bool:
     """
-    議題共有リマインダーを送信すべきかどうか判定
-    next_meeting_dateの前日18:00に実行される想定
-    現在時刻が前日の18:00~19:00の範囲内ならTrue
+    議題共有リマインダーを送信すべきかどうか判定。
+    条件:
+      - 前日18:00以降（JST）
+      - または当日（未送信なら許可; 重複防止は呼び出し側の sent_marker で管理）
     """
     if not next_meeting_date_str:
         return False
@@ -67,15 +68,15 @@ def should_send_agenda_reminder(next_meeting_date_str: str) -> bool:
         # next_meeting_dateをパース
         meeting_date = datetime.strptime(next_meeting_date_str, "%Y-%m-%d")
         
-        # 前日
+        # 前日 or 当日判定
         target_date = meeting_date - timedelta(days=1)
-        
-        # 現在のJST時刻
         now = now_jst()
-        
-        # 同じ日付で、18:00以降
-        # GitHub Actionsは毎時00分実行なので、18:00以降ならOK
-        # remarksのagenda_sentフラグで重複防止されているので何度実行しても安全
+
+        # 当日であれば許可（重複は送信側で sent_marker により防止）
+        if now.date() == meeting_date.date():
+            return True
+
+        # 前日18:00以降であれば許可
         if now.date() == target_date.date() and now.hour >= 18:
             return True
         
