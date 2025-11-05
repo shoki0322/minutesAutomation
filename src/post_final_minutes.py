@@ -46,11 +46,29 @@ def post_for_sheet(sheet_name: str, slack_client: SlackClient):
             continue
 
         title = row.get("title", "無題")
+        # 参加者メンション生成（participants のメールから Slack ID へ変換）
+        participants_str = row.get("participants", "").strip()
+        mentions = ""
+        if participants_str:
+            participant_emails = [p.strip() for p in participants_str.split(',') if p.strip()]
+            slack_ids = []
+            for email in participant_emails:
+                sid = slack_client.lookup_user_id_by_email(email)
+                if not sid and "@initialbrain.jp" in email:
+                    converted_email = email.replace("@initialbrain.jp", "@nexx-inc.jp")
+                    sid = slack_client.lookup_user_id_by_email(converted_email)
+                if sid:
+                    slack_ids.append(f"<@{sid}>")
+            if slack_ids:
+                mentions = " ".join(slack_ids)
         # 本文とスレッドに分割（決定事項の詳細 以下はスレッドへ）。
         main_text, thread_text = split_main_and_thread(text)
         # 万一、親側が空になった場合は従来通り全文を親に投稿（重複回避）
         if not (main_text or "").strip():
             main_text, thread_text = text, ""
+        # 親メッセージにメンションを付与（スレッド側には付与しない）
+        if mentions:
+            main_text = f"{mentions}\n\n{main_text}" if main_text else mentions
 
         print(f"[post_final_minutes] Posting final minutes for: {title}")
         ts = slack_client.post_message(channel_id, main_text)
