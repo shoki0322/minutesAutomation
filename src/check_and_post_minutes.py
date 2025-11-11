@@ -287,7 +287,7 @@ def check_and_post_for_sheet(sheet_name: str, slack_client: SlackClient):
                 review_target_text = f"<@{review_user_id}>" if review_user_id else f"@{trigger_name}"
                 guidance = (
                     f"{notify_text}議事録を確認し、修正が必要な場合は参加者間で合意の上、こちらのスレッドで下記フォーマットで{review_target_text}宛に送信ください。\n"
-                    f"修正要望がない場合は返信不要です。\n"
+                    f"修正要望がない場合も議事録の内容を確認した旨を返信してください。\n"
                     f"【期日:明日午前中9時まで】\n"
                     f"⇩修正依頼フォーマット⇩\n"
                     f"該当箇所\n"
