@@ -44,15 +44,30 @@ def get_calendar_participants(date: str, title: str = "", meeting_key: str = "",
         time_min = date_dt.isoformat()
         time_max = (date_dt + timedelta(days=1)).isoformat()
         
-        events_result = cal_service.events().list(
-            calendarId=os.getenv("CALENDAR_ID", "primary"),
-            timeMin=time_min,
-            timeMax=time_max,
-            singleEvents=True,
-            orderBy="startTime"
-        ).execute()
+        # 参照カレンダーを決定: CALENDAR_IDS(カンマ区切り) > CALENDAR_ID > primary
+        cal_ids_env = os.getenv("CALENDAR_IDS", "").strip()
+        if cal_ids_env:
+            calendar_ids = [c.strip() for c in cal_ids_env.split(",") if c.strip()]
+        else:
+            calendar_ids = [os.getenv("CALENDAR_ID", "primary")]
         
-        events = events_result.get("items", [])
+        # 複数カレンダーを横断して当日イベントを収集
+        events = []
+        for cal_id in calendar_ids:
+            try:
+                res = cal_service.events().list(
+                    calendarId=cal_id,
+                    timeMin=time_min,
+                    timeMax=time_max,
+                    singleEvents=True,
+                    orderBy="startTime"
+                ).execute()
+                items = res.get("items", [])
+                if items:
+                    events.extend(items)
+            except Exception as _:
+                # 1カレンダーの失敗は致命ではないため継続
+                continue
         
         if not events:
             print(f"[check_and_post_minutes] No calendar events found on {date}")
