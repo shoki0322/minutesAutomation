@@ -45,7 +45,7 @@ def get_calendar_participants(date: str, title: str = "", meeting_key: str = "",
         time_max = (date_dt + timedelta(days=1)).isoformat()
         
         events_result = cal_service.events().list(
-            calendarId="primary",
+            calendarId=os.getenv("CALENDAR_ID", "primary"),
             timeMin=time_min,
             timeMax=time_max,
             singleEvents=True,
