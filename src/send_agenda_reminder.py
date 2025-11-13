@@ -13,6 +13,7 @@ from .minutes_repo import (
     now_jst,
     now_jst_str,
 )
+from .business_date import business_days_before
 
 DEFAULT_CHANNEL_ID = os.getenv("DEFAULT_CHANNEL_ID", "").strip()
 
@@ -58,26 +59,24 @@ def should_send_agenda_reminder(next_meeting_date_str: str) -> bool:
     """
     議題共有リマインダーを送信すべきかどうか判定。
     条件:
-      - 前日18:00以降（JST）
+      - 前営業日18:00以降（JST）
       - または当日（未送信なら許可; 重複防止は呼び出し側の sent_marker で管理）
     """
     if not next_meeting_date_str:
         return False
     
     try:
-        # next_meeting_dateをパース
-        meeting_date = datetime.strptime(next_meeting_date_str, "%Y-%m-%d")
-        
-        # 前日 or 当日判定
-        target_date = meeting_date - timedelta(days=1)
+        meeting_date = datetime.strptime(next_meeting_date_str, "%Y-%m-%d").date()
+        # 前営業日
+        target_date = business_days_before(meeting_date, 1)
         now = now_jst()
 
         # 当日であれば許可（重複は送信側で sent_marker により防止）
-        if now.date() == meeting_date.date():
+        if now.date() == meeting_date:
             return True
 
-        # 前日18:00以降であれば許可
-        if now.date() == target_date.date() and now.hour >= 18:
+        # 前営業日18:00以降であれば許可
+        if now.date() == target_date and now.hour >= 18:
             return True
         
         return False

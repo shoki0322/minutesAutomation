@@ -12,6 +12,7 @@ from .minutes_repo import (
     now_jst,
     now_jst_str,
 )
+from .business_date import business_days_before
 
 DEFAULT_CHANNEL_ID = os.getenv("DEFAULT_CHANNEL_ID", "").strip()
 
@@ -19,26 +20,22 @@ DEFAULT_CHANNEL_ID = os.getenv("DEFAULT_CHANNEL_ID", "").strip()
 def should_send_hearing_reminder(next_meeting_date_str: str) -> bool:
     """
     ヒアリング依頼を送信すべきかどうか判定
-    next_meeting_dateの2日前09:00に実行される想定
-    現在時刻が2日前の09:00~10:00の範囲内ならTrue
+    next_meeting_dateの「2営業日前」09:00に実行される想定
+    現在時刻が対象営業日の09:00以降ならTrue（重複防止はhearing_thread_tsで担保）
     """
     if not next_meeting_date_str:
         return False
     
     try:
-        # next_meeting_dateをパース
-        meeting_date = datetime.strptime(next_meeting_date_str, "%Y-%m-%d")
-        
-        # 2日前
-        target_date = meeting_date - timedelta(days=2)
+        meeting_date = datetime.strptime(next_meeting_date_str, "%Y-%m-%d").date()
+        # 2営業日前
+        target_date = business_days_before(meeting_date, 2)
         
         # 現在のJST時刻
         now = now_jst()
         
         # 同じ日付で、09:00以降
-        # GitHub Actionsは毎時00分実行なので、09:00以降ならOK
-        # hearing_thread_tsで重複防止されているので何度実行しても安全
-        if now.date() == target_date.date() and now.hour >= 9:
+        if now.date() == target_date and now.hour >= 9:
             return True
         
         return False
@@ -48,14 +45,19 @@ def should_send_hearing_reminder(next_meeting_date_str: str) -> bool:
         return False
 
 
-def create_hearing_message(next_meeting_date: str, participants: list = None, previous_responses: list = None, mentions: str = "") -> str:
-    """ヒアリング依頼メッセージを生成（メンション対応）"""
+def create_hearing_message(next_meeting_date: str, participants: list = None, previous_responses: list = None, mentions: str = "", hearing_text: str = "") -> str:
+    """ヒアリング依頼メッセージを生成（hearing_text優先、メンション対応）"""
+    body = (hearing_text or "").strip()
+    if body:
+        if mentions:
+            return f"{mentions}\n\n{body}"
+        return body
+    # フォールバック: 既存テンプレート
     header_parts = []
     if mentions:
         header_parts.append(mentions)
     header_parts.append(f"*次回会議のヒアリング項目*")
     header = "\n\n".join(header_parts)
-
     template_body = (
         "\n\n"
         "*1. 担当者名：*\n"
@@ -75,7 +77,6 @@ def create_hearing_message(next_meeting_date: str, participants: list = None, pr
         "このスレッドで回答してください 👇\n\n"
         "*翌日9:00までに本スレッドで返信ください。返信がない場合は次回アジェンダに追加されません。*"
     )
-
     return header + template_body
     
 
@@ -168,8 +169,11 @@ def send_hearing_for_sheet(sheet_name: str, slack_client: SlackClient):
             if slack_ids:
                 mentions = " ".join(slack_ids)
 
-        # メッセージ生成（メンション付与）
-        message = create_hearing_message(next_meeting_date, participants, previous_responses, mentions)
+        # hearing_text（任意列）を取得
+        hearing_text = row.get("hearing_text", "").strip()
+        
+        # メッセージ生成（hearing_text優先、メンション付与）
+        message = create_hearing_message(next_meeting_date, participants, previous_responses, mentions, hearing_text)
         
         # Slack投稿（議事録のスレッド＝最終があれば最終）
         print(f"[send_hearing_reminder] Sending hearing reminder for: {title}")

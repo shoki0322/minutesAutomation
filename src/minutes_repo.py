@@ -20,6 +20,7 @@ EXPECTED_COLUMNS = [
     "next_meeting_date",
     "next_meeting_date_display",
     "participants",
+    "hearing_text",
     "doc_url",
     "summary",
     "formatted_minutes",
