@@ -285,7 +285,8 @@ def send_agenda_for_sheet(sheet_name: str, slack_client: SlackClient):
             # 案内: 追加議題・参考リンクの締切をスレッドに投稿（こちらが正規の送付先）
             try:
                 guidance = (
-                    "アジェンダに議案や資料を追加したい場合は、こちらのスレッドで下記フォーマットで@DR.ベガパンク宛に送信ください。\n"
+                    "アジェンダに議案や資料を追加したい場合は、こちらのスレッドで下記フォーマットで@DRベガパンク宛に送信ください。\n"
+                    "テキストを送るときは、本文に必ず @DRベガパンク をつけてください。\n"
                     "修正要望がない場合も議事録の内容を確認した旨を返信してください。\n"
                     "【期日:会議開始10分前まで】\n"
                     "⇩議案追加＆資料追加依頼フォーマット　⇩　※必要な方のみでOK\n"
@@ -319,7 +320,8 @@ def send_agenda_for_sheet(sheet_name: str, slack_client: SlackClient):
                         nudge_text = (
                             "⏬　⏬　⏬　⏬　⏬　⏬　⏬　⏬　⏬　⏬　⏬　⏬\n"
                             "【✏️議事録修正要望ヒアリング✏️】\n\n"
-                            "このスレッドにつながるように、今日の16時までに送ってください。"
+                            "このスレッドにつながるように、今日の16時までに送ってください。\n"
+                            "テキストを送るときは、本文に必ず @DRベガパンク をつけてください。"
                         )
                         print(f"[send_agenda_reminder] Sending 9AM nudge for: {title}")
                         if target_thread_ts:

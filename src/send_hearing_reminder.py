@@ -74,7 +74,8 @@ def create_hearing_message(next_meeting_date: str, participants: list = None, pr
         "--課題・懸念点：\n"
         "*3. 新しく議題として取り上げたい内容(複数可)：*\n"
         "・ \n\n"
-        "このスレッドで回答してください 👇\n\n"
+        "このスレッドで回答してください 👇\n"
+        "テキストを送るときは、本文に必ず @DRベガパンク をつけてください。\n\n"
         "*翌日9:00までに本スレッドで返信ください。返信がない場合は次回アジェンダに追加されません。*"
     )
     return header + template_body
