@@ -1,3 +1,25 @@
+from datetime import date, timedelta
+
+
+def business_days_before(target: date, days: int) -> date:
+    """
+    指定日の「営業日前」を返す（祝日は考慮せず、土日を除外）。
+    例: 月曜の1営業日前は前週の金曜。
+    - target: 基準となる日付（datetime.date）
+    - days: さかのぼる営業日数（0ならtargetを返す）
+    """
+    if days <= 0:
+        return target
+
+    d = target
+    remaining = days
+    while remaining > 0:
+        d = d - timedelta(days=1)
+        # 月=0 ... 日=6。土日(5,6)はスキップ
+        if d.weekday() < 5:
+            remaining -= 1
+    return d
+
 import os
 from datetime import datetime, timedelta, date
 from functools import lru_cache

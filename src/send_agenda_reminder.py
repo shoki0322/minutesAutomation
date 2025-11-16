@@ -86,8 +86,23 @@ def should_send_agenda_reminder(next_meeting_date_str: str) -> bool:
         return False
 
 
+def should_send_agenda_nudge(next_meeting_date_str: str) -> bool:
+    """
+    当日9:00（JST）以降に催促メッセージを送る判定。
+    実際の重複防止は呼び出し側で remarks マーカーにより行う。
+    """
+    if not next_meeting_date_str:
+        return False
+    try:
+        meeting_date = datetime.strptime(next_meeting_date_str, "%Y-%m-%d").date()
+        now = now_jst()
+        return now.date() == meeting_date and now.hour >= 9
+    except Exception as e:
+        print(f"[send_agenda_reminder] Error parsing date for nudge {next_meeting_date_str}: {e}")
+        return False
+
 def create_agenda_message(title: str, next_meeting_date: str, next_agenda: str, 
-                         mentions: str = "") -> str:
+mentions: str = "") -> str:
     """議題共有メッセージを生成（メンション＋テキスト本文のみ）"""
     parts = []
     
@@ -116,7 +131,7 @@ def _find_event_on_date(cal_svc, calendar_id: str, date_str: str, title: str) ->
     time_min = dt.isoformat()
     time_max = (dt + timedelta(days=1)).isoformat()
     items = cal_svc.events().list(calendarId=calendar_id, timeMin=time_min, timeMax=time_max,
-                                  singleEvents=True, orderBy="startTime").execute().get("items", [])
+    singleEvents=True, orderBy="startTime").execute().get("items", [])
     if not items:
         return None
     # 完全一致
@@ -291,6 +306,38 @@ def send_agenda_for_sheet(sheet_name: str, slack_client: SlackClient):
         else:
             print(f"[send_agenda_reminder] Failed to send agenda for: {title}")
 
+        # 当日9:00の催促メッセージ（未送信なら）。agenda_sent の有無に関係なく独立に評価
+        try:
+            if should_send_agenda_nudge(next_meeting_date):
+                remarks = row.get("remarks", "")
+                nudge_marker = f"agenda_nudge_sent:{next_meeting_date}"
+                if nudge_marker not in remarks:
+                    channel_id = row.get("channel_id", "").strip() or DEFAULT_CHANNEL_ID
+                    if channel_id:
+                        title = row.get("title", "無題")
+                        target_thread_ts = (row.get("agenda_thread_ts", "") or "").strip()
+                        nudge_text = (
+                            "⏬　⏬　⏬　⏬　⏬　⏬　⏬　⏬　⏬　⏬　⏬　⏬\n"
+                            "【✏️議事録修正要望ヒアリング✏️】\n\n"
+                            "このスレッドにつながるように、今日の16時までに送ってください。"
+                        )
+                        print(f"[send_agenda_reminder] Sending 9AM nudge for: {title}")
+                        if target_thread_ts:
+                            slack_client.post_message(channel_id, nudge_text, thread_ts=target_thread_ts)
+                        else:
+                            nts = slack_client.post_message(channel_id, nudge_text)
+                            if nts and row.get("_row_number") and "agenda_thread_ts" in row:
+                                update_row(sheet_name, row["_row_number"], {"agenda_thread_ts": nts, "updated_at": now_jst_str()})
+                        # マーカー付与
+                        if row.get("_row_number"):
+                            update_row(sheet_name, row["_row_number"], {
+                                "remarks": f"{remarks} {nudge_marker}".strip(),
+                                "updated_at": now_jst_str(),
+                            })
+                            print(f"[send_agenda_reminder] Nudge marker saved for row {row['_row_number']}")
+        except Exception as e:
+            print(f"[send_agenda_reminder] Failed to send 9AM nudge: {e}")
+
 
 def main():
     """メイン処理"""
@@ -314,4 +361,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
